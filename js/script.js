@@ -1,32 +1,38 @@
-// 1. Seleccionamos los elementos de la interfaz que queremos usar
+// 1. Inicializamos el mapa centrado en el mundo (coordenadas 0,0)
+const map = L.map('map').setView([0, 0], 2);
+
+// 2. Cargamos las "piezas" del mapa (OpenStreetMap)
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+}).addTo(map);
+
+// 3. Variable para el marcador (para poder moverlo luego)
+let marcador;
+
 const btnLocalizar = document.getElementById('btn-localizar');
 const infoCoords = document.getElementById('info-coords');
 
-// 2. Creamos la función que se ejecutará al hacer clic
 btnLocalizar.addEventListener('click', () => {
-    
-    // Verificamos si el navegador soporta geolocalización
     if (navigator.geolocation) {
-        infoCoords.innerText = "Buscando satélites...";
+        infoCoords.innerText = "Localizando...";
 
-        // Pedimos la ubicación actual
         navigator.geolocation.getCurrentPosition((posicion) => {
             const lat = posicion.coords.latitude;
             const lon = posicion.coords.longitude;
 
-            // Mostramos los datos en el panel lateral
-            infoCoords.innerHTML = `
-                <strong>Latitud:</strong> ${lat.toFixed(4)} <br>
-                <strong>Longitud:</strong> ${lon.toFixed(4)}
-            `;
-            
-            console.log("Ubicación encontrada:", lat, lon);
-        }, (error) => {
-            infoCoords.innerText = "Error: No se pudo obtener la ubicación.";
-            console.error(error);
-        });
+            // Actualizamos texto
+            infoCoords.innerHTML = `<strong>Lat:</strong> ${lat.toFixed(4)} <br> <strong>Lon:</strong> ${lon.toFixed(4)}`;
 
-    } else {
-        alert("Tu navegador no soporta geolocalización.");
+            // 4. Movemos el mapa a nuestra ubicación con Zoom 15
+            map.setView([lat, lon], 15);
+
+            // 5. Si ya había un marcador, lo quitamos para poner el nuevo
+            if (marcador) map.removeLayer(marcador);
+            
+            marcador = L.marker([lat, lon]).addTo(map)
+                .bindPopup("¡Estás aquí!")
+                .openPopup();
+
+        });
     }
 });
