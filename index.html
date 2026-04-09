@@ -1,31 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HOLA MUNDO!!!</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
-    <h1>geovision dashboard</h1>
-    <div id="app-container">
-    <header>
-        <h1>GeoVision 2026</h1>
-    </header>
-    
-    <main>
-        <section id="map-container">
-            <div id="map">Aquí se cargará el mapa</div>
-        </section>
 
-        <aside id="sidebar">
-            <h2>Panel de Control</h2>
-            <button id="btn-localizar">Mi Ubicación</button>
-            <div id="info-coords">Esperando señal GPS...</div>
-        </aside>
-    </main>
-</div>
+<body>
+    <div id="app-container">
+        <header>
+            <h1>GeoVision 2026</h1>
+        </header>
+
+        <main>
+            <section id="map-container">
+                <div id="map" style="height: 100%; width: 100%;"></div>
+            </section>
+
+            <aside id="sidebar">
+                <h2>Panel de Control</h2>
+                <button id="btn-localizar">Mi Ubicación</button>
+                <div id="info-coords">Esperando señal GPS...</div>
+            </aside>
+        </main>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="js/script.js"></script>
+
 </body>
-<script src="js/script.js"></script>
 
 </html>

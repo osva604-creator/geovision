@@ -28,11 +28,30 @@ btnLocalizar.addEventListener('click', () => {
 
             // 5. Si ya había un marcador, lo quitamos para poner el nuevo
             if (marcador) map.removeLayer(marcador);
-            
+
             marcador = L.marker([lat, lon]).addTo(map)
                 .bindPopup("¡Estás aquí!")
                 .openPopup();
+            // 6. Escuchar el clic en cualquier parte del mapa
+            map.on('click', function (e) {
+                // e.latlng contiene las coordenadas de donde hiciste clic
+                const clickLat = e.latlng.lat;
+                const clickLon = e.latlng.lng;
+                const lista = document.getElementById('lista-puntos');
+                const nuevoElemento = document.createElement('li');
+                nuevoElemento.innerHTML = `📍 ${clickLat.toFixed(2)}, ${clickLon.toFixed(2)}`;
+                lista.appendChild(nuevoElemento);
 
+                // Creamos un marcador nuevo en ese lugar
+                const nuevoMarcador = L.marker([clickLat, clickLon]).addTo(map);
+
+                // Le agregamos un pequeño mensaje (Popup)
+                nuevoMarcador.bindPopup(`Punto marcado en:<br> ${clickLat.toFixed(4)}, ${clickLon.toFixed(4)}`)
+                    .openPopup();
+
+                // Actualizamos el panel lateral para mostrar que interactuamos
+                infoCoords.innerHTML = `<strong>Punto manual:</strong><br>Lat: ${clickLat.toFixed(4)}<br>Lon: ${clickLon.toFixed(4)}`;
+            });
         });
     }
 });
