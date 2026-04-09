@@ -35,6 +35,14 @@
                 </ul>
             </aside>
         </main>
+        <hr>
+        <h3>Calculador de Objetivo (Mira)</h3>
+        <div id="panel-mira" style="background: #333; padding: 10px; border-radius: 5px; font-size: 0.8em;">
+            <p>Ángulo Gimbal (Pitch): <input type="number" id="gimbal-pitch" value="-90" style="width: 50px;"> °</p>
+            <p>Rumbo (Heading): <input type="number" id="drone-heading" value="0" style="width: 50px;"> °</p>
+            <button id="btn-proyectar" style="background-color: #e74c3c;">Calcular Punto Objetivo</button>
+        </div>
+        <div id="resultado-mira" style="margin-top:10px; color: #f1c40f;"></div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>

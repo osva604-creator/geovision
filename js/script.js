@@ -132,3 +132,70 @@ if (inputDrone) {
         }
     });
 }
+// Función para proyectar una coordenada (Destino a partir de origen, distancia y rumbo)
+function proyectarCoordenada(lat, lon, distanciaMetros, rumboGrados) {
+    const R = 6371000; // Radio de la Tierra en metros
+    const rumboRad = (rumboGrados * Math.PI) / 180;
+    const latRad = (lat * Math.PI) / 180;
+    const lonRad = (lon * Math.PI) / 180;
+
+    const distRelativa = distanciaMetros / R;
+
+    const nuevaLatRad = Math.asin(
+        Math.sin(latRad) * Math.cos(distRelativa) +
+        Math.cos(latRad) * Math.sin(distRelativa) * Math.cos(rumboRad)
+    );
+
+    const nuevaLonRad = lonRad + Math.atan2(
+        Math.sin(rumboRad) * Math.sin(distRelativa) * Math.cos(latRad),
+        Math.cos(distRelativa) - Math.sin(latRad) * Math.sin(nuevaLatRad)
+    );
+
+    return {
+        lat: (nuevaLatRad * 180) / Math.PI,
+        lon: (nuevaLonRad * 180) / Math.PI
+    };
+}
+
+// Evento del botón "Calcular Punto Objetivo"
+document.getElementById('btn-proyectar').addEventListener('click', () => {
+    // 1. Obtenemos datos del drone (de la última foto o inputs)
+    // Para este ejemplo, usaremos las últimas coordenadas reales detectadas
+    const latDrone = ultimasCoordsReales.lat;
+    const lonDrone = ultimasCoordsReales.lon;
+    const altDrone = ultimasCoordsReales.alt;
+
+    const pitch = Math.abs(document.getElementById('gimbal-pitch').value);
+    const heading = document.getElementById('drone-heading').value;
+
+    if (!latDrone) {
+        alert("Primero sube una foto con GPS");
+        return;
+    }
+
+    // 2. Trigonometría: Calculamos distancia horizontal al suelo
+    // Si pitch es 90 (mirando abajo), distancia es 0.
+    // Usamos radianes para Math.tan
+    const anguloRad = ((90 - pitch) * Math.PI) / 180;
+    const distanciaHorizontal = altDrone * Math.tan(anguloRad);
+
+    // 3. Proyectamos el punto
+    const objetivo = proyectarCoordenada(latDrone, lonDrone, distanciaHorizontal, heading);
+
+    // 4. Dibujamos la "Mira" en el mapa
+    const iconoMira = L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/1665/1665578.png', // Icono de mira
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+    });
+
+    L.marker([objetivo.lat, objetivo.lon], { icon: iconoMira })
+        .addTo(map)
+        .bindPopup(`<b>Objetivo Identificado</b><br>Distancia: ${distanciaHorizontal.toFixed(1)}m`)
+        .openPopup();
+
+    // Dibujamos una línea del drone al objetivo para visualizar el "disparo"
+    L.polyline([[latDrone, lonDrone], [objetivo.lat, objetivo.lon]], { color: 'red', dashArray: '5, 10' }).addTo(map);
+
+    document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distanciaHorizontal.toFixed(1)}m de distancia.`;
+});
