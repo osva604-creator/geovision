@@ -52,3 +52,16 @@ button {
 button:hover {
     background-color: #005a9e;
 }
+#lista-puntos {
+    max-height: 300px; /* Limita la altura */
+    overflow-y: auto;  /* Agrega scroll si hay muchos puntos */
+    background: #242424;
+    padding: 10px;
+    border-radius: 5px;
+    font-size: 0.9em;
+}
+
+#lista-puntos li {
+    padding: 5px 0;
+    border-bottom: 1px solid #333;
+}
