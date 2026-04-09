@@ -75,36 +75,60 @@ if (btnSubir) {
     btnSubir.addEventListener('click', () => inputDrone.click());
 }
 
+// --- SECCIÓN DE DRONE CON CONVERSIÓN DMS ---
 if (inputDrone) {
     inputDrone.addEventListener('change', function () {
         const file = this.files[0];
         if (file) {
-            // Simulamos datos que vendrían en el EXIF de la foto
-            const droneLat = -26.8400;
-            const droneLon = -65.1600;
-            const alturaVuelo = 120;
+            telemetria.innerHTML = `<em>Procesando: ${file.name}...</em>`;
 
-            telemetria.innerHTML = `
-                <strong>Archivo:</strong> ${file.name}<br>
-                <strong>Altitud:</strong> ${alturaVuelo}m<br>
-                <span style="color: #2ecc71;">✓ Georeferencia detectada</span>
-            `;
+            EXIF.getData(file, function () {
+                // 1. Extraemos los datos crudos (en fracciones/arrays)
+                const latData = EXIF.getTag(this, "GPSLatitude");
+                const lonData = EXIF.getTag(this, "GPSLongitude");
+                const latRef = EXIF.getTag(this, "GPSLatitudeRef");
+                const lonRef = EXIF.getTag(this, "GPSLongitudeRef");
+                let alt = EXIF.getTag(this, "GPSAltitude") || 0;
 
-            // Icono personalizado para el drone
-            const droneIcon = L.icon({
-                iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684662.png',
-                iconSize: [40, 40],
-                iconAnchor: [20, 20]
+                if (latData && lonData) {
+                    // 2. FORMATEO PARA HUMANOS (DMS: Grados, Minutos, Segundos)
+                    // latData[0] son Grados, latData[1] son Minutos, latData[2] son Segundos
+                    const textoLat = `${latData[0]}° ${latData[1]}' ${latData[2].toFixed(2)}" ${latRef}`;
+                    const textoLon = `${lonData[0]}° ${lonData[1]}' ${lonData[2].toFixed(2)}" ${lonRef}`;
+
+                    // 3. MATEMÁTICA PARA EL MAPA (Decimal)
+                    let realLat = latData[0] + (latData[1] / 60) + (latData[2] / 3600);
+                    let realLon = lonData[0] + (lonData[1] / 60) + (lonData[2] / 3600);
+                    if (latRef === 'S') realLat = -realLat;
+                    if (lonRef === 'W') realLon = -realLon;
+
+                    // 4. ACTUALIZAR EL PANEL LATERAL
+                    telemetria.innerHTML = `
+                        <strong>Archivo:</strong> ${file.name}<br>
+                        <strong>Lat:</strong> ${textoLat}<br>
+                        <strong>Lon:</strong> ${textoLon}<br>
+                        <strong>Altitud:</strong> ${typeof alt === 'object' ? (alt.numerator / alt.denominator).toFixed(1) : alt}m<br>
+                        <span style="color: #2ecc71;">✓ EXIF Original Leído</span>
+                    `;
+
+                    // 5. MARCADOR Y VUELO
+                    const droneIcon = L.icon({
+                        iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684662.png',
+                        iconSize: [40, 40],
+                        iconAnchor: [20, 20]
+                    });
+
+                    L.marker([realLat, realLon], { icon: droneIcon })
+                        .addTo(map)
+                        .bindPopup(`<b>Drone en:</b><br>${textoLat}<br>${textoLon}`)
+                        .openPopup();
+
+                    map.flyTo([realLat, realLon], 19);
+
+                } else {
+                    telemetria.innerHTML = `<span style="color: #e74c3c;">✗ No hay GPS en esta foto.</span>`;
+                }
             });
-
-            // Ponemos el marcador del drone en el mapa
-            L.marker([droneLat, droneLon], { icon: droneIcon })
-                .addTo(map)
-                .bindPopup(`<b>Inspección Drone</b><br>Foto: ${file.name}`)
-                .openPopup();
-
-            // Hacemos zoom a la zona de la foto
-            map.flyTo([droneLat, droneLon], 18);
         }
     });
 }
