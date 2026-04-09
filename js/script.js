@@ -65,3 +65,46 @@ map.on('click', function (e) {
     // Actualizar info
     infoCoords.innerHTML = `<strong>Punto manual:</strong><br>Lat: ${clickLat.toFixed(4)}<br>Lon: ${clickLon.toFixed(4)}`;
 });
+// --- SECCIÓN DE DRONE ---
+const btnSubir = document.getElementById('btn-subir-foto');
+const inputDrone = document.getElementById('input-drone');
+const telemetria = document.getElementById('telemetria-drone');
+
+// Al hacer clic en el botón naranja, activamos el selector de archivos oculto
+if (btnSubir) {
+    btnSubir.addEventListener('click', () => inputDrone.click());
+}
+
+if (inputDrone) {
+    inputDrone.addEventListener('change', function () {
+        const file = this.files[0];
+        if (file) {
+            // Simulamos datos que vendrían en el EXIF de la foto
+            const droneLat = -26.8400;
+            const droneLon = -65.1600;
+            const alturaVuelo = 120;
+
+            telemetria.innerHTML = `
+                <strong>Archivo:</strong> ${file.name}<br>
+                <strong>Altitud:</strong> ${alturaVuelo}m<br>
+                <span style="color: #2ecc71;">✓ Georeferencia detectada</span>
+            `;
+
+            // Icono personalizado para el drone
+            const droneIcon = L.icon({
+                iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684662.png',
+                iconSize: [40, 40],
+                iconAnchor: [20, 20]
+            });
+
+            // Ponemos el marcador del drone en el mapa
+            L.marker([droneLat, droneLon], { icon: droneIcon })
+                .addTo(map)
+                .bindPopup(`<b>Inspección Drone</b><br>Foto: ${file.name}`)
+                .openPopup();
+
+            // Hacemos zoom a la zona de la foto
+            map.flyTo([droneLat, droneLon], 18);
+        }
+    });
+}
