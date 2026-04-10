@@ -34,6 +34,19 @@ const btnSubir = document.getElementById('btn-subir-foto');
 const inputDrone = document.getElementById('input-drone');
 const telemetria = document.getElementById('telemetria-drone');
 
+// ICONOS PERSONALIZADOS
+const droneIcon = L.icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png', // Cámara Pro
+    iconSize: [45, 45],
+    iconAnchor: [22, 22]
+});
+
+const iconoMira = L.icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png', // Mira Pro
+    iconSize: [40, 40],
+    iconAnchor: [20, 20]
+});
+
 // =========================================================
 // 2. FUNCIONES AYUDANTES
 // =========================================================
@@ -92,7 +105,7 @@ map.on('click', function (e) {
     const clickLat = e.latlng.lat;
     const clickLon = e.latlng.lng;
     L.marker([clickLat, clickLon]).addTo(map)
-        .bindPopup(`Punto:<br>${decimalADMS(clickLat, true)}`).openPopup();
+        .bindPopup(`Punto marcado:<br>${decimalADMS(clickLat, true)}<br>${decimalADMS(clickLon, false)}`).openPopup();
 });
 
 if (btnSubir) {
@@ -100,17 +113,19 @@ if (btnSubir) {
 }
 
 // =========================================================
-// 4. LÓGICA DE DRONE Y EXIF (RECONSTRUIDA)
+// 4. LÓGICA DE DRONE Y EXIF (CON MINIATURA Y AUTO-RELLENO)
 // =========================================================
 if (inputDrone) {
     inputDrone.addEventListener('change', function () {
         const file = this.files[0];
         if (!file) return;
 
+        // Crear miniatura temporal
+        const fotoURL = URL.createObjectURL(file);
+
         telemetria.innerHTML = `<em>Procesando: ${file.name}...</em>`;
 
         EXIF.getData(file, function () {
-            // A. Coordenadas
             const latData = EXIF.getTag(this, "GPSLatitude");
             const lonData = EXIF.getTag(this, "GPSLongitude");
             const latRef = EXIF.getTag(this, "GPSLatitudeRef");
@@ -126,7 +141,6 @@ if (inputDrone) {
             if (latRef === 'S') realLat = -realLat;
             if (lonRef === 'W') realLon = -realLon;
 
-            // B. Altura (Prioridad Relativa)
             let altRelativa = EXIF.getTag(this, "RelativeAltitude");
             let altGPS = EXIF.getTag(this, "GPSAltitude");
             let altFinal = 0;
@@ -135,10 +149,10 @@ if (inputDrone) {
                 altFinal = Math.abs(parseFloat(altRelativa));
             } else if (altGPS) {
                 let altBruta = typeof altGPS === 'object' ? (altGPS.numerator / altGPS.denominator) : altGPS;
-                altFinal = altBruta > 300 ? altBruta - 480 : altBruta; 
+                altFinal = altBruta > 300 ? altBruta - 480 : altBruta;
             }
 
-            // C. Escaneo de Pitch y Heading (XMP de DJI)
+            // Escaneo de Pitch y Heading
             const reader = new FileReader();
             reader.onload = function (e) {
                 const text = e.target.result;
@@ -149,27 +163,26 @@ if (inputDrone) {
                 let headingFinal = yawMatch ? parseFloat(yawMatch[1]) : 0;
                 if (headingFinal < 0) headingFinal += 360;
 
-                // D. Rellenado de UI y Variable Global
+                // Actualizar UI
                 document.getElementById('manual-alt').value = altFinal.toFixed(1);
                 document.getElementById('gimbal-pitch').value = pitchFinal.toFixed(1);
                 document.getElementById('drone-heading').value = headingFinal.toFixed(1);
                 ultimasCoordsReales = { lat: realLat, lon: realLon, alt: altFinal };
 
-                // E. Interfaz y Mapa
                 telemetria.innerHTML = `
                     <strong>Archivo:</strong> ${file.name}<br>
                     <strong>Altitud (AGL):</strong> ${altFinal.toFixed(1)}m<br>
                     <strong>Gimbal:</strong> ${pitchFinal.toFixed(1)}° | <strong>Rumbo:</strong> ${headingFinal.toFixed(1)}°
                 `;
 
-                const droneIcon = L.icon({
-                    iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684662.png',
-                    iconSize: [40, 40],
-                    iconAnchor: [20, 20]
-                });
-
                 L.marker([realLat, realLon], { icon: droneIcon }).addTo(map)
-                    .bindPopup(`<b>Drone</b><br>${decimalADMS(realLat, true)}`).openPopup();
+                    .bindPopup(`
+                        <div style="text-align:center;">
+                            <b>Cámara Drone</b><br>
+                            <img src="${fotoURL}" style="width:160px; border-radius:8px; margin-top:5px;"><br>
+                            <small>${decimalADMS(realLat, true)}</small>
+                        </div>
+                    `).openPopup();
 
                 map.flyTo([realLat, realLon], 19);
             };
@@ -179,7 +192,7 @@ if (inputDrone) {
 }
 
 // =========================================================
-// 5. CÁLCULO DE MIRA
+// 5. CÁLCULO DE MIRA (POPUP PRO CON DMS)
 // =========================================================
 document.getElementById('btn-proyectar').addEventListener('click', () => {
     const latDrone = ultimasCoordsReales.lat;
@@ -197,19 +210,25 @@ document.getElementById('btn-proyectar').addEventListener('click', () => {
     const distanciaHorizontal = altDrone * Math.tan(anguloIncidenciaRad);
     const objetivo = proyectarCoordenada(latDrone, lonDrone, distanciaHorizontal, heading);
 
-    const iconoMira = L.icon({
-        iconUrl: 'https://cdn-icons-png.flaticon.com/512/1665/1665578.png',
-        iconSize: [30, 30],
-        iconAnchor: [15, 15]
-    });
+    const latDMS = decimalADMS(objetivo.lat, true);
+    const lonDMS = decimalADMS(objetivo.lon, false);
 
     L.marker([objetivo.lat, objetivo.lon], { icon: iconoMira }).addTo(map)
-        .bindPopup(`<b>Objetivo</b><br>Distancia: ${distanciaHorizontal.toFixed(1)}m`)
-        .openPopup();
+        .bindPopup(`
+            <div style="text-align: center; font-family: sans-serif;">
+                <b style="color: #e74c3c; font-size: 1.1em;">🎯 OBJETIVO DETECTADO</b><br>
+                <hr style="margin: 5px 0;">
+                <table style="width: 100%; font-size: 0.9em; text-align: left;">
+                    <tr><td><b>LAT:</b></td><td>${latDMS}</td></tr>
+                    <tr><td><b>LON:</b></td><td>${lonDMS}</td></tr>
+                    <tr><td><b>DIST:</b></td><td>${distanciaHorizontal.toFixed(1)}m al drone</td></tr>
+                </table>
+            </div>
+        `).openPopup();
 
     L.polyline([[latDrone, lonDrone], [objetivo.lat, objetivo.lon]], {
-        color: 'red', dashArray: '5, 10', weight: 2
+        color: 'red', dashArray: '5, 10', weight: 3
     }).addTo(map);
 
-    document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distanciaHorizontal.toFixed(1)}m`;
+    document.getElementById('resultado-mira').innerHTML = `🎯 Mira fijada a ${distanciaHorizontal.toFixed(1)}m`;
 });
