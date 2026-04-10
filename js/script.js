@@ -35,10 +35,9 @@ const inputDrone = document.getElementById('input-drone');
 const telemetria = document.getElementById('telemetria-drone');
 
 // =========================================================
-// 2. FUNCIONES AYUDANTES (Helper Functions)
+// 2. FUNCIONES AYUDANTES
 // =========================================================
 
-// Convierte decimal a Grados, Minutos y Segundos
 function decimalADMS(decimal, esLatitud) {
     const absoluto = Math.abs(decimal);
     const grados = Math.floor(absoluto);
@@ -49,7 +48,6 @@ function decimalADMS(decimal, esLatitud) {
     return `${grados}° ${minutos}' ${segundos}" ${direccion}`;
 }
 
-// Proyecta una coordenada basada en distancia y rumbo
 function proyectarCoordenada(lat, lon, distanciaMetros, rumboGrados) {
     const R = 6371000;
     const rumboRad = (rumboGrados * Math.PI) / 180;
@@ -73,153 +71,132 @@ function proyectarCoordenada(lat, lon, distanciaMetros, rumboGrados) {
 }
 
 // =========================================================
-// 3. EVENTOS DE USUARIO Y MAPA
+// 3. EVENTOS DE MAPA
 // =========================================================
 
-// Localización del usuario
 btnLocalizar.addEventListener('click', () => {
     if (navigator.geolocation) {
         infoCoords.innerText = "Localizando...";
         navigator.geolocation.getCurrentPosition((posicion) => {
             const lat = posicion.coords.latitude;
             const lon = posicion.coords.longitude;
-            infoCoords.innerHTML = `<strong>Mi Ubicación:</strong><br>${decimalADMS(lat, true)}<br>${decimalADMS(lon, false)}`;
-            map.setView([lat, lon], 15);
+            infoCoords.innerHTML = `<strong>Ubicación:</strong><br>${decimalADMS(lat, true)}<br>${decimalADMS(lon, false)}`;
+            map.setView([lat, lon], 17);
             if (marcador) map.removeLayer(marcador);
             marcador = L.marker([lat, lon]).addTo(map).bindPopup("¡Estás aquí!").openPopup();
         });
     }
 });
 
-// Clic manual en el mapa
 map.on('click', function (e) {
     const clickLat = e.latlng.lat;
     const clickLon = e.latlng.lng;
-    const dmsLat = decimalADMS(clickLat, true);
-    const dmsLon = decimalADMS(clickLon, false);
-
     L.marker([clickLat, clickLon]).addTo(map)
-        .bindPopup(`Punto marcado:<br>${dmsLat}<br>${dmsLon}`).openPopup();
-
-    const nuevoElemento = document.createElement('li');
-    nuevoElemento.innerHTML = `📍 ${dmsLat}, ${dmsLon}`;
-    lista.appendChild(nuevoElemento);
-
-    infoCoords.innerHTML = `<strong>Punto manual:</strong><br>${dmsLat}<br>${dmsLon}`;
+        .bindPopup(`Punto:<br>${decimalADMS(clickLat, true)}`).openPopup();
 });
 
-// Botón disparador de archivos
 if (btnSubir) {
     btnSubir.addEventListener('click', () => inputDrone.click());
 }
 
 // =========================================================
-// 4. LÓGICA DE DRONE Y EXIF
+// 4. LÓGICA DE DRONE Y EXIF (RECONSTRUIDA)
 // =========================================================
 if (inputDrone) {
     inputDrone.addEventListener('change', function () {
         const file = this.files[0];
-        if (file) {
-            telemetria.innerHTML = `<em>Procesando: ${file.name}...</em>`;
-            EXIF.getData(file, function () {
-                const latData = EXIF.getTag(this, "GPSLatitude");
-                const lonData = EXIF.getTag(this, "GPSLongitude");
-                const latRef = EXIF.getTag(this, "GPSLatitudeRef");
-                const lonRef = EXIF.getTag(this, "GPSLongitudeRef");
-                let altRaw = EXIF.getTag(this, "GPSAltitude") || 0;
+        if (!file) return;
 
-                if (latData && lonData) {
-                    // Conversión a Decimal para el mapa
-                    let realLat = latData[0] + (latData[1] / 60) + (latData[2] / 3600);
-                    let realLon = lonData[0] + (lonData[1] / 60) + (lonData[2] / 3600);
-                    if (latRef === 'S') realLat = -realLat;
-                    if (lonRef === 'W') realLon = -realLon;
+        telemetria.innerHTML = `<em>Procesando: ${file.name}...</em>`;
 
-                    // Cálculo de altitud real
-                    let altRelativa = EXIF.getTag(this, "RelativeAltitude");
-                    let altGPS = EXIF.getTag(this, "GPSAltitude");
+        EXIF.getData(file, function () {
+            // A. Coordenadas
+            const latData = EXIF.getTag(this, "GPSLatitude");
+            const lonData = EXIF.getTag(this, "GPSLongitude");
+            const latRef = EXIF.getTag(this, "GPSLatitudeRef");
+            const lonRef = EXIF.getTag(this, "GPSLongitudeRef");
 
-                    // Si existe la relativa (suele venir como "+100.5"), la limpiamos y usamos esa
-                    let altFinal = 0;
-                    if (altRelativa) {
-                        altFinal = Math.abs(parseFloat(altRelativa));
-                    } else if (altGPS) {
-                        altFinal = typeof altGPS === 'object' ? (altGPS.numerator / altGPS.denominator) : altGPS;
-                    }
+            if (!latData || !lonData) {
+                telemetria.innerHTML = `<span style="color: #e74c3c;">✗ Sin GPS en metadatos.</span>`;
+                return;
+            }
 
-                    // Actualizamos la variable global y el input
-                    ultimasCoordsReales.alt = altFinal;
-                    document.getElementById('manual-alt').value = altFinal.toFixed(1);
+            let realLat = latData[0] + (latData[1] / 60) + (latData[2] / 3600);
+            let realLon = lonData[0] + (lonData[1] / 60) + (lonData[2] / 3600);
+            if (latRef === 'S') realLat = -realLat;
+            if (lonRef === 'W') realLon = -realLon;
 
-                    // !!! ACTUALIZACIÓN DE VARIABLE GLOBAL !!!
-                    ultimasCoordsReales = { lat: realLat, lon: realLon, alt: altFinal };
+            // B. Altura (Prioridad Relativa)
+            let altRelativa = EXIF.getTag(this, "RelativeAltitude");
+            let altGPS = EXIF.getTag(this, "GPSAltitude");
+            let altFinal = 0;
 
-                    // Mostrar en panel (DMS)
-                    const textoLat = decimalADMS(realLat, true);
-                    const textoLon = decimalADMS(realLon, false);
+            if (altRelativa) {
+                altFinal = Math.abs(parseFloat(altRelativa));
+            } else if (altGPS) {
+                let altBruta = typeof altGPS === 'object' ? (altGPS.numerator / altGPS.denominator) : altGPS;
+                altFinal = altBruta > 300 ? altBruta - 480 : altBruta; 
+            }
 
-                    telemetria.innerHTML = `
-                        <strong>Archivo:</strong> ${file.name}<br>
-                        <strong>Lat:</strong> ${textoLat}<br>
-                        <strong>Lon:</strong> ${textoLon}<br>
-                        <strong>Altitud:</strong> ${altFinal.toFixed(1)}m<br>
-                        <span style="color: #2ecc71;">✓ Datos Listos para Mira</span>
-                    `;
+            // C. Escaneo de Pitch y Heading (XMP de DJI)
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const text = e.target.result;
+                const pitchMatch = text.match(/GimbalPitchDegree="([^"]+)"/);
+                const yawMatch = text.match(/FlightYawDegree="([^"]+)"/);
 
-                    const droneIcon = L.icon({
-                        iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684662.png',
-                        iconSize: [40, 40],
-                        iconAnchor: [20, 20]
-                    });
+                let pitchFinal = pitchMatch ? Math.abs(parseFloat(pitchMatch[1])) : 90;
+                let headingFinal = yawMatch ? parseFloat(yawMatch[1]) : 0;
+                if (headingFinal < 0) headingFinal += 360;
 
-                    L.marker([realLat, realLon], { icon: droneIcon }).addTo(map)
-                        .bindPopup(`<b>Drone en:</b><br>${textoLat}`).openPopup();
+                // D. Rellenado de UI y Variable Global
+                document.getElementById('manual-alt').value = altFinal.toFixed(1);
+                document.getElementById('gimbal-pitch').value = pitchFinal.toFixed(1);
+                document.getElementById('drone-heading').value = headingFinal.toFixed(1);
+                ultimasCoordsReales = { lat: realLat, lon: realLon, alt: altFinal };
 
-                    map.flyTo([realLat, realLon], 19);
-                } else {
-                    telemetria.innerHTML = `<span style="color: #e74c3c;">✗ No hay GPS en esta foto.</span>`;
-                }
-            });
-        }
+                // E. Interfaz y Mapa
+                telemetria.innerHTML = `
+                    <strong>Archivo:</strong> ${file.name}<br>
+                    <strong>Altitud (AGL):</strong> ${altFinal.toFixed(1)}m<br>
+                    <strong>Gimbal:</strong> ${pitchFinal.toFixed(1)}° | <strong>Rumbo:</strong> ${headingFinal.toFixed(1)}°
+                `;
+
+                const droneIcon = L.icon({
+                    iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684662.png',
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 20]
+                });
+
+                L.marker([realLat, realLon], { icon: droneIcon }).addTo(map)
+                    .bindPopup(`<b>Drone</b><br>${decimalADMS(realLat, true)}`).openPopup();
+
+                map.flyTo([realLat, realLon], 19);
+            };
+            reader.readAsText(file.slice(0, 60000));
+        });
     });
 }
 
 // =========================================================
-// 5. CÁLCULO DE MIRA / PROYECCIÓN
-// =========================================================// =========================================================
-// 5. CÁLCULO DE MIRA / PROYECCIÓN (ACTUALIZADO AGL)
+// 5. CÁLCULO DE MIRA
 // =========================================================
 document.getElementById('btn-proyectar').addEventListener('click', () => {
     const latDrone = ultimasCoordsReales.lat;
     const lonDrone = ultimasCoordsReales.lon;
-    
-    // 1. IMPORTANTE: Usamos la altura del INPUT (que ahora es AGL/Relativa)
     const altDrone = parseFloat(document.getElementById('manual-alt').value);
-
-    // 2. Leemos Pitch y Heading
     const pitchInput = Math.abs(document.getElementById('gimbal-pitch').value);
     const heading = parseFloat(document.getElementById('drone-heading').value);
 
-    // Validación de seguridad
     if (latDrone === 0) {
-        alert("Primero sube una foto con GPS para obtener la posición de origen.");
+        alert("Sube una foto primero.");
         return;
     }
 
-    if (pitchInput < 10) {
-        alert("Ángulo muy bajo. La mira caería demasiado lejos para ser precisa.");
-        return;
-    }
-
-    // 3. TRIGONOMETRÍA REAL (Altura al suelo)
-    // El ángulo de incidencia es el complemento del pitch
     const anguloIncidenciaRad = ((90 - pitchInput) * Math.PI) / 180;
     const distanciaHorizontal = altDrone * Math.tan(anguloIncidenciaRad);
-
-    // 4. PROYECCIÓN DE LA COORDENADA
     const objetivo = proyectarCoordenada(latDrone, lonDrone, distanciaHorizontal, heading);
 
-    // 5. DIBUJAR EN MAPA
     const iconoMira = L.icon({
         iconUrl: 'https://cdn-icons-png.flaticon.com/512/1665/1665578.png',
         iconSize: [30, 30],
@@ -227,14 +204,12 @@ document.getElementById('btn-proyectar').addEventListener('click', () => {
     });
 
     L.marker([objetivo.lat, objetivo.lon], { icon: iconoMira }).addTo(map)
-        .bindPopup(`<b>Objetivo AGL</b><br>Distancia: ${distanciaHorizontal.toFixed(1)}m<br>Lat: ${decimalADMS(objetivo.lat, true)}`)
+        .bindPopup(`<b>Objetivo</b><br>Distancia: ${distanciaHorizontal.toFixed(1)}m`)
         .openPopup();
 
-    L.polyline([[latDrone, lonDrone], [objetivo.lat, objetivo.lon]], { 
-        color: 'red', 
-        dashArray: '5, 10',
-        weight: 2 
+    L.polyline([[latDrone, lonDrone], [objetivo.lat, objetivo.lon]], {
+        color: 'red', dashArray: '5, 10', weight: 2
     }).addTo(map);
 
-    document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distanciaHorizontal.toFixed(1)}m (Calculado sobre H:${altDrone}m)`;
+    document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distanciaHorizontal.toFixed(1)}m`;
 });
