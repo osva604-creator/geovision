@@ -4,17 +4,19 @@
 let ultimasCoordsReales = { lat: 0, lon: 0, alt: 0 };
 
 const capaCalles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap'
+    attribution: '© OpenStreetMap',
+    maxZoom: 19
 });
 
-const capaSatelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{y}/{x}/{z}', {
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri'
+const capaSatelite = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    attribution: '© Google Satellite',
+    maxZoom: 21
 });
 
 const map = L.map('map', {
     center: [0, 0],
     zoom: 2,
-    layers: [capaCalles]
+    layers: [capaSatelite]
 });
 
 const mapasBase = {
@@ -49,7 +51,7 @@ function decimalADMS(decimal, esLatitud) {
 
 // Proyecta una coordenada basada en distancia y rumbo
 function proyectarCoordenada(lat, lon, distanciaMetros, rumboGrados) {
-    const R = 6371000; 
+    const R = 6371000;
     const rumboRad = (rumboGrados * Math.PI) / 180;
     const latRad = (lat * Math.PI) / 180;
     const lonRad = (lon * Math.PI) / 180;
@@ -102,7 +104,7 @@ map.on('click', function (e) {
     const nuevoElemento = document.createElement('li');
     nuevoElemento.innerHTML = `📍 ${dmsLat}, ${dmsLon}`;
     lista.appendChild(nuevoElemento);
-    
+
     infoCoords.innerHTML = `<strong>Punto manual:</strong><br>${dmsLat}<br>${dmsLon}`;
 });
 
@@ -132,9 +134,22 @@ if (inputDrone) {
                     let realLon = lonData[0] + (lonData[1] / 60) + (lonData[2] / 3600);
                     if (latRef === 'S') realLat = -realLat;
                     if (lonRef === 'W') realLon = -realLon;
-                    
+
                     // Cálculo de altitud real
-                    let altFinal = typeof altRaw === 'object' ? (altRaw.numerator / altRaw.denominator) : altRaw;
+                    let altRelativa = EXIF.getTag(this, "RelativeAltitude");
+                    let altGPS = EXIF.getTag(this, "GPSAltitude");
+
+                    // Si existe la relativa (suele venir como "+100.5"), la limpiamos y usamos esa
+                    let altFinal = 0;
+                    if (altRelativa) {
+                        altFinal = Math.abs(parseFloat(altRelativa));
+                    } else if (altGPS) {
+                        altFinal = typeof altGPS === 'object' ? (altGPS.numerator / altGPS.denominator) : altGPS;
+                    }
+
+                    // Actualizamos la variable global y el input
+                    ultimasCoordsReales.alt = altFinal;
+                    document.getElementById('manual-alt').value = altFinal.toFixed(1);
 
                     // !!! ACTUALIZACIÓN DE VARIABLE GLOBAL !!!
                     ultimasCoordsReales = { lat: realLat, lon: realLon, alt: altFinal };
@@ -171,27 +186,40 @@ if (inputDrone) {
 
 // =========================================================
 // 5. CÁLCULO DE MIRA / PROYECCIÓN
+// =========================================================// =========================================================
+// 5. CÁLCULO DE MIRA / PROYECCIÓN (ACTUALIZADO AGL)
 // =========================================================
 document.getElementById('btn-proyectar').addEventListener('click', () => {
     const latDrone = ultimasCoordsReales.lat;
     const lonDrone = ultimasCoordsReales.lon;
-    const altDrone = ultimasCoordsReales.alt;
+    
+    // 1. IMPORTANTE: Usamos la altura del INPUT (que ahora es AGL/Relativa)
+    const altDrone = parseFloat(document.getElementById('manual-alt').value);
 
-    const pitch = Math.abs(document.getElementById('gimbal-pitch').value);
+    // 2. Leemos Pitch y Heading
+    const pitchInput = Math.abs(document.getElementById('gimbal-pitch').value);
     const heading = parseFloat(document.getElementById('drone-heading').value);
 
+    // Validación de seguridad
     if (latDrone === 0) {
         alert("Primero sube una foto con GPS para obtener la posición de origen.");
         return;
     }
 
-    // Trigonometría para distancia horizontal
-    const anguloRad = ((90 - pitch) * Math.PI) / 180;
-    const distanciaHorizontal = altDrone * Math.tan(anguloRad);
+    if (pitchInput < 10) {
+        alert("Ángulo muy bajo. La mira caería demasiado lejos para ser precisa.");
+        return;
+    }
 
-    // Proyección del objetivo
+    // 3. TRIGONOMETRÍA REAL (Altura al suelo)
+    // El ángulo de incidencia es el complemento del pitch
+    const anguloIncidenciaRad = ((90 - pitchInput) * Math.PI) / 180;
+    const distanciaHorizontal = altDrone * Math.tan(anguloIncidenciaRad);
+
+    // 4. PROYECCIÓN DE LA COORDENADA
     const objetivo = proyectarCoordenada(latDrone, lonDrone, distanciaHorizontal, heading);
 
+    // 5. DIBUJAR EN MAPA
     const iconoMira = L.icon({
         iconUrl: 'https://cdn-icons-png.flaticon.com/512/1665/1665578.png',
         iconSize: [30, 30],
@@ -199,7 +227,8 @@ document.getElementById('btn-proyectar').addEventListener('click', () => {
     });
 
     L.marker([objetivo.lat, objetivo.lon], { icon: iconoMira }).addTo(map)
-        .bindPopup(`<b>Objetivo Calculado</b><br>Distancia: ${distanciaHorizontal.toFixed(1)}m<br>Lat: ${decimalADMS(objetivo.lat, true)}`).openPopup();
+        .bindPopup(`<b>Objetivo AGL</b><br>Distancia: ${distanciaHorizontal.toFixed(1)}m<br>Lat: ${decimalADMS(objetivo.lat, true)}`)
+        .openPopup();
 
     L.polyline([[latDrone, lonDrone], [objetivo.lat, objetivo.lon]], { 
         color: 'red', 
@@ -207,5 +236,5 @@ document.getElementById('btn-proyectar').addEventListener('click', () => {
         weight: 2 
     }).addTo(map);
 
-    document.getElementById('resultado-mira').innerHTML = `🎯 Mira fijada a ${distanciaHorizontal.toFixed(1)}m`;
+    document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distanciaHorizontal.toFixed(1)}m (Calculado sobre H:${altDrone}m)`;
 });
