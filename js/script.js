@@ -49,7 +49,7 @@ document.getElementById('btn-localizar').onclick = () => {
     navigator.geolocation.getCurrentPosition(p => {
         const { latitude: lat, longitude: lon, accuracy: acc } = p.coords;
         map.flyTo([lat, lon], 18);
-        document.getElementById('info-coords').innerHTML = `<strong>Mi Ubicación:</strong><br>${decimalADMS(lat,true)}<br>${decimalADMS(lon,false)}<br><small>Precisión: +/- ${acc.toFixed(0)}m</small>`;
+        document.getElementById('info-coords').innerHTML = `<strong>Mi Ubicación:</strong><br>${decimalADMS(lat, true)}<br>${decimalADMS(lon, false)}<br><small>Precisión: +/- ${acc.toFixed(0)}m</small>`;
         L.circleMarker([lat, lon], { radius: 8, color: '#fff', fillColor: '#0078d4', fillOpacity: 0.8 }).addTo(map);
     });
 };
@@ -57,32 +57,32 @@ document.getElementById('btn-localizar').onclick = () => {
 const inputDrone = document.getElementById('input-drone');
 document.getElementById('btn-subir-foto').onclick = () => inputDrone.click();
 
-inputDrone.onchange = function() {
+inputDrone.onchange = function () {
     const file = this.files[0];
     if (!file) return;
     const fotoURL = URL.createObjectURL(file);
 
-    EXIF.getData(file, function() {
+    EXIF.getData(file, function () {
         let lat = EXIF.getTag(this, "GPSLatitude"), lon = EXIF.getTag(this, "GPSLongitude");
         if (!lat) return alert("La foto no tiene GPS");
 
-        let rLat = lat[0] + lat[1]/60 + lat[2]/3600;
-        let rLon = lon[0] + lon[1]/60 + lon[2]/3600;
+        let rLat = lat[0] + lat[1] / 60 + lat[2] / 3600;
+        let rLon = lon[0] + lon[1] / 60 + lon[2] / 3600;
         if (EXIF.getTag(this, "GPSLatitudeRef") === "S") rLat = -rLat;
         if (EXIF.getTag(this, "GPSLongitudeRef") === "W") rLon = -rLon;
-        
+
         ultimasCoordsReales = { lat: rLat, lon: rLon };
 
         const reader = new FileReader();
-        reader.onload = function(e) {
+        reader.onload = function (e) {
             const txt = e.target.result;
             const mP = txt.match(/GimbalPitchDegree="([^"]+)"/), mY = txt.match(/FlightYawDegree="([^"]+)"/), mA = txt.match(/RelativeAltitude="([^"]+)"/);
-            
+
             if (mP) document.getElementById('gimbal-pitch').value = Math.abs(parseFloat(mP[1])).toFixed(0);
             if (mY) { let y = parseFloat(mY[1]); document.getElementById('drone-heading').value = (y < 0 ? y + 360 : y).toFixed(0); }
             if (mA) document.getElementById('manual-alt').value = Math.abs(parseFloat(mA[1])).toFixed(0);
 
-            document.getElementById('telemetria-drone').innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(rLat,true)} | ${decimalADMS(rLon,false)}`;
+            document.getElementById('telemetria-drone').innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(rLat, true)} | ${decimalADMS(rLon, false)}`;
             L.marker([rLat, rLon], { icon: droneIcon }).addTo(map).bindPopup(`<img src="${fotoURL}" width="150">`).openPopup();
             map.flyTo([rLat, rLon], 19);
         };
@@ -100,8 +100,8 @@ document.getElementById('btn-proyectar').onclick = () => {
     const head = parseFloat(document.getElementById('drone-heading').value);
     const distH = alt * Math.tan(((90 - pitch) * Math.PI) / 180);
     const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, head);
-    
-    L.marker([obj.lat, obj.lon], {icon: iconoMira}).addTo(map).bindPopup(`<b>Objetivo</b><br>${distH.toFixed(1)}m`).openPopup();
+
+    L.marker([obj.lat, obj.lon], { icon: iconoMira }).addTo(map).bindPopup(`<b>Objetivo</b><br>${distH.toFixed(1)}m`).openPopup();
     L.polyline([[ultimasCoordsReales.lat, ultimasCoordsReales.lon], [obj.lat, obj.lon]], { color: 'red', dashArray: '5,10' }).addTo(map);
     document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distH.toFixed(1)}m`;
 };
@@ -109,17 +109,17 @@ document.getElementById('btn-proyectar').onclick = () => {
 // =========================================================
 // 5. HERRAMIENTAS DE DIBUJO
 // =========================================================
-document.getElementById('btn-regla').onclick = () => { 
-    modoMedicion = !modoMedicion; modoPoligono = false; modoMarcadoManual = false; 
-    puntosTemp = []; document.getElementById('btn-regla').style.backgroundColor = modoMedicion ? "#e67e22" : "#3498db"; 
+document.getElementById('btn-regla').onclick = () => {
+    modoMedicion = !modoMedicion; modoPoligono = false; modoMarcadoManual = false;
+    puntosTemp = []; document.getElementById('btn-regla').style.backgroundColor = modoMedicion ? "#e67e22" : "#3498db";
 };
-document.getElementById('btn-poligono').onclick = () => { 
-    modoPoligono = !modoPoligono; modoMedicion = false; modoMarcadoManual = false; 
-    puntosTemp = []; document.getElementById('btn-poligono').style.backgroundColor = modoPoligono ? "#e67e22" : "#27ae60"; 
+document.getElementById('btn-poligono').onclick = () => {
+    modoPoligono = !modoPoligono; modoMedicion = false; modoMarcadoManual = false;
+    puntosTemp = []; document.getElementById('btn-poligono').style.backgroundColor = modoPoligono ? "#e67e22" : "#27ae60";
 };
-document.getElementById('btn-modo-punto').onclick = () => { 
-    modoMarcadoManual = !modoMarcadoManual; modoMedicion = false; modoPoligono = false; 
-    document.getElementById('btn-modo-punto').innerText = modoMarcadoManual ? "📍 Modo Marcador: ACTIVO" : "📍 Modo Marcador: Desactivado"; 
+document.getElementById('btn-modo-punto').onclick = () => {
+    modoMarcadoManual = !modoMarcadoManual; modoMedicion = false; modoPoligono = false;
+    document.getElementById('btn-modo-punto').innerText = modoMarcadoManual ? "📍 Modo Marcador: ACTIVO" : "📍 Modo Marcador: Desactivado";
 };
 
 map.on('click', e => {
@@ -148,11 +148,11 @@ map.on('dblclick', () => {
     if (!modoPoligono || puntosTemp.length < 3) return;
     const id = Date.now();
     const poli = L.polygon(puntosTemp, { color: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
-    
+
     // Convertir a vértices editables
     const vertices = [];
     puntosTemp.forEach((ll) => {
-        let v = L.marker(ll, {draggable: true, icon: L.divIcon({className: 'vertice-poligono', iconSize: [10,10]})}).addTo(map);
+        let v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: 'vertice-poligono', iconSize: [10, 10] }) }).addTo(map);
         v.on('drag', () => {
             poli.setLatLngs(vertices.map(m => m.getLatLng()));
             actualizarInfoPoligono(id);
@@ -183,9 +183,9 @@ function actualizarListaPuntos() {
 function actualizarListaLineas() {
     const ui = document.getElementById('lista-medidas'); ui.innerHTML = "";
     historialMediciones.forEach(m => {
-        const txt = m.dist > 1000 ? (m.dist/1000).toFixed(2)+"km" : m.dist.toFixed(1)+"m";
+        const txt = m.dist > 1000 ? (m.dist / 1000).toFixed(2) + "km" : m.dist.toFixed(1) + "m";
         m.linea.bindTooltip(`<b>${m.nombre}</b><br>${txt}`, { permanent: true, direction: 'center' }).openTooltip();
-        
+
         const li = document.createElement('li');
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
         li.innerHTML = `<div style="display:flex; flex-direction:column;">
@@ -196,45 +196,30 @@ function actualizarListaLineas() {
         ui.appendChild(li);
     });
 }
-
 function actualizarInfoPoligono(id) {
     const p = historialPoligonos.find(x => x.id === id);
     if (!p) return;
 
-    let areaCalculada = "---";
+    const ll = p.objeto.getLatLngs()[0];
+    let areaTexto = "Calculando...";
 
-    // Intentamos calcular con la librería
-    try {
-        if (window.L && window.L.GeometryUtil) {
-            // Obtenemos los puntos (asegurando que sea el array correcto)
-            const latlngs = p.objeto.getLatLngs()[0];
-            const a = L.GeometryUtil.geodesicArea(latlngs);
-            
-            if (a > 10000) {
-                areaCalculada = (a / 10000).toFixed(2) + " ha";
-            } else {
-                areaCalculada = a.toFixed(1) + " m²";
-            }
-        } else {
-            console.error("Librería GeometryUtil no detectada");
-            areaCalculada = "Error Lib";
-        }
-    } catch (e) {
-        console.error("Error en cálculo de área:", e);
-        areaCalculada = "Error";
+    // Forzamos la detección de la librería cargada en el HTML
+    if (window.L && window.L.GeometryUtil) {
+        const a = L.GeometryUtil.geodesicArea(ll);
+        areaTexto = a > 10000 ? (a / 10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
+    } else {
+        areaTexto = "Cargando lib...";
     }
 
-    // Guardamos el texto en el objeto para que la lista lo use
-    p.areaTxt = areaCalculada;
+    p.areaTxt = areaTexto; // Guardamos el valor
 
-    // Actualizamos el cartelito flotante sobre el polígono
-    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${areaCalculada}`, {
+    // Actualizar etiqueta en el mapa
+    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${areaTexto}`, {
         permanent: true,
         direction: 'center',
         className: 'etiqueta-area'
     }).openTooltip();
 
-    // Refrescamos la lista lateral para que aparezca el número
     actualizarListaLateralPoligonos();
 }
 
@@ -243,7 +228,7 @@ function actualizarListaLateralPoligonos() {
     const ui = document.getElementById('lista-poligonos');
     if (!ui) return;
     ui.innerHTML = "";
-    
+
     historialPoligonos.forEach(x => {
         ui.innerHTML += `
             <li style="border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;">
@@ -260,9 +245,9 @@ function actualizarListaLateralPoligonos() {
 // =========================================================
 // 7. FUNCIONES GLOBALES (CAMBIO NOMBRE Y BORRADO)
 // =========================================================
-window.cambiarNombrePunto = (id, n) => { 
-    const p = historialPuntos.find(x => x.id === id); 
-    if (p) { p.nombre = n; p.m.getPopup() ? p.m.setPopupContent(`<b>${n}</b>`) : p.m.bindPopup(`<b>${n}</b>`); } 
+window.cambiarNombrePunto = (id, n) => {
+    const p = historialPuntos.find(x => x.id === id);
+    if (p) { p.nombre = n; p.m.getPopup() ? p.m.setPopupContent(`<b>${n}</b>`) : p.m.bindPopup(`<b>${n}</b>`); }
 };
 window.cambiarNombreLinea = (id, n) => {
     const m = historialMediciones.find(x => x.id === id);
