@@ -4,9 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MOYI_MAPS 2.0</title>
+    <title>GeoVision 2026</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
     <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -18,48 +17,91 @@
 
         <main>
             <section id="map-container">
-                <div id="map" style="height: 100%; width: 100%;"></div>
+                <div id="map"></div>
             </section>
 
             <aside id="sidebar">
                 <h2>Panel de Control</h2>
+
                 <button id="btn-localizar">Mi Ubicación</button>
                 <div id="info-coords">Esperando señal GPS...</div>
-                <h3>Historial de Puntos</h3>
+
                 <hr>
+
                 <h3>Foto Drone</h3>
                 <input type="file" id="input-drone" accept="image/*" style="display: none;">
                 <button id="btn-subir-foto" style="background-color: #f39c12;">Subir Foto de Drone</button>
                 <div id="telemetria-drone" style="margin-top: 10px; font-size: 0.8em; color: #f1c40f;"></div>
-                <ul id="lista-puntos" style="list-style: none; padding: 0; color: #ccc;">
-                </ul>
+
                 <hr>
+
                 <h3>Calculador de Objetivo (Mira)</h3>
-                <div id="panel-herramientas"
-                    style="margin-top: 15px; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444;">
-                    <h4 style="margin-top: 0; color: #3498db;">📏 MEDIR</h4>
-                    <button id="btn-regla"
-                        style="width: 100%; padding: 8px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                        Medir Distancia
-                    </button>
-                    <div id="resultado-regla" style="margin-top: 10px; font-weight: bold; color: #2ecc71;"></div>
-                    <small style="color: #aaa; font-size: 0.8em;">* Haz clic en dos puntos del mapa para medir.</small>
+                <div id="panel-mira" style="background: #333; padding: 10px; border-radius: 5px; font-size: 0.8em;">
+                    <p>Ángulo Gimbal (Pitch): <input type="number" id="gimbal-pitch" value="45" style="width: 50px;"> °
+                    </p>
+                    <p>Rumbo (Heading): <input type="number" id="drone-heading" value="0" style="width: 50px;"> °</p>
+                    <p>Altitud de Vuelo: <input type="number" id="manual-alt" value="100" style="width: 50px;"> mts</p>
+                    <button id="btn-proyectar" style="background-color: #e74c3c; width: 100%;">Calcular Punto
+                        Objetivo</button>
+                    <div id="resultado-mira" style="margin-top:10px; color: #f1c40f;"></div>
                 </div>
+
+                <hr>
+
+                <div id="panel-medicion-total"
+                    style="margin-top: 15px; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444;">
+                    <h4 style="margin-top: 0; color: #3498db;">📐 Herramientas de Medición</h4>
+
+                    <div style="display: flex; gap: 5px;">
+                        <button id="btn-regla" style="flex: 1; background-color: #3498db; font-size: 0.8em;">📏 Nueva
+                            Línea</button>
+                        <button id="btn-poligono" style="flex: 1; background-color: #27ae60; font-size: 0.8em;">📐 Nuevo
+                            Área</button>
+                    </div>
+
+                    <button id="btn-borrar-todo"
+                        style="width: 100%; background-color: #c0392b; margin-top:5px; padding: 5px; font-size: 0.8em;">Borrar
+                        Todo el Mapa</button>
+
+                    <div style="margin-top: 15px;">
+                        <small style="color: #3498db; font-weight: bold;">Líneas (Distancias):</small>
+                        <ul id="lista-medidas"
+                            style="list-style: none; padding: 0; margin-top:5px; max-height: 120px; overflow-y: auto;">
+                        </ul>
+                    </div>
+
+                    <div style="margin-top: 15px;">
+                        <small style="color: #27ae60; font-weight: bold;">Polígonos (Áreas):</small>
+                        <ul id="lista-poligonos"
+                            style="list-style: none; padding: 0; margin-top:5px; max-height: 120px; overflow-y: auto;">
+                        </ul>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div id="panel-puntos"
+                    style="margin-top: 15px; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444;">
+                    <h4 style="margin-top: 0; color: #27ae60;">📍 Puntos de Interés</h4>
+                    <button id="btn-modo-punto"
+                        style="width: 100%; padding: 8px; background: #2c3e50; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px;">
+                        📍 Marcador Manual: Desactivado
+                    </button>
+                    <div id="historial-puntos" style="max-height: 150px; overflow-y: auto;">
+                        <ul id="lista-puntos" style="list-style: none; padding: 0; font-size: 0.85em; color: white;">
+                        </ul>
+                    </div>
+                </div>
+
             </aside>
         </main>
-        <hr>
-        <h3>Calculador de Objetivo (Mira)</h3>
-        <div id="panel-mira" style="background: #333; padding: 10px; border-radius: 5px; font-size: 0.8em;">
-            <p>Ángulo Gimbal (Pitch): <input type="number" id="gimbal-pitch" value="45" style="width: 50px;"> °</p>
-            <p>Rumbo (Heading): <input type="number" id="drone-heading" value="0" style="width: 50px;"> °</p>
-            <p>Altitud de Vuelo: <input type="number" id="manual-alt" value="100" style="width: 50px;"> mts</p>
-
-            <button id="btn-proyectar" style="background-color: #e74c3c;">Calcular Punto Objetivo</button>
-        </div>
-        <div id="resultado-mira" style="margin-top:10px; color: #f1c40f;"></div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-geometryutil@0.10.3/dist/leaflet.geometryutil.min.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+
     <script src="js/script.js"></script>
 </body>
 
