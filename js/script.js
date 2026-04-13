@@ -1,12 +1,11 @@
 // =========================================================
-// 1. VARIABLES GLOBALES Y CONFIGURACIÓN
+// 1. VARIABLES GLOBALES Y MAPA
 // =========================================================
 let ultimasCoordsReales = { lat: 0, lon: 0 };
 let modoMedicion = false, modoPoligono = false, modoMarcadoManual = false;
 let puntosTemp = [], marcadoresTemp = [];
 let historialMediciones = [], historialPoligonos = [], historialPuntos = [];
 
-// Capas de Mapa
 const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
     maxZoom: 21, subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
 });
@@ -15,7 +14,6 @@ const map = L.map('map', {
     center: [-26.837, -65.203], zoom: 15, layers: [googleHybrid], doubleClickZoom: false
 });
 
-// Iconos
 const droneIcon = L.icon({
     iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png',
     iconSize: [45, 45], iconAnchor: [22, 22]
@@ -27,7 +25,7 @@ const iconoMira = L.icon({
 });
 
 // =========================================================
-// 2. FUNCIONES DE APOYO (GPS Y MATEMÁTICAS)
+// 2. FUNCIONES DE APOYO
 // =========================================================
 function decimalADMS(d, esLat) {
     const abs = Math.abs(d);
@@ -38,11 +36,7 @@ function decimalADMS(d, esLat) {
 }
 
 function proyectar(lat, lon, dist, rumbo) {
-    const R = 6371000;
-    const r = (rumbo * Math.PI) / 180;
-    const la = (lat * Math.PI) / 180;
-    const lo = (lon * Math.PI) / 180;
-    const d = dist / R;
+    const R = 6371000, r = (rumbo * Math.PI) / 180, la = (lat * Math.PI) / 180, lo = (lon * Math.PI) / 180, d = dist / R;
     const nLa = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(r));
     const nLo = lo + Math.atan2(Math.sin(r) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(nLa));
     return { lat: (nLa * 180) / Math.PI, lon: (nLo * 180) / Math.PI };
@@ -113,7 +107,7 @@ document.getElementById('btn-proyectar').onclick = () => {
 };
 
 // =========================================================
-// 5. HERRAMIENTAS Y CLICS
+// 5. HERRAMIENTAS DE DIBUJO
 // =========================================================
 document.getElementById('btn-regla').onclick = () => { 
     modoMedicion = !modoMedicion; modoPoligono = false; modoMarcadoManual = false; 
@@ -141,7 +135,6 @@ map.on('click', e => {
             const id = Date.now(), d = puntosTemp[0].distanceTo(puntosTemp[1]);
             const l = L.polyline(puntosTemp, { color: '#3498db', weight: 3 }).addTo(map);
             historialMediciones.push({ id, linea: l, dist: d, nombre: `Medida ${historialMediciones.length + 1}` });
-            l.bindTooltip(`${d.toFixed(1)}m`, { permanent: true, direction: 'center' }).openTooltip();
             actualizarListaLineas();
             puntosTemp = []; modoMedicion = false; document.getElementById('btn-regla').style.backgroundColor = "#3498db";
         }
@@ -155,55 +148,94 @@ map.on('dblclick', () => {
     if (!modoPoligono || puntosTemp.length < 3) return;
     const id = Date.now();
     const poli = L.polygon(puntosTemp, { color: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
-    historialPoligonos.push({ id, objeto: poli, marcadores: [...marcadoresTemp], nombre: `Área ${historialPoligonos.length + 1}` });
+    
+    // Convertir a vértices editables
+    const vertices = [];
+    puntosTemp.forEach((ll) => {
+        let v = L.marker(ll, {draggable: true, icon: L.divIcon({className: 'vertice-poligono', iconSize: [10,10]})}).addTo(map);
+        v.on('drag', () => {
+            poli.setLatLngs(vertices.map(m => m.getLatLng()));
+            actualizarInfoPoligono(id);
+        });
+        vertices.push(v);
+    });
+
+    historialPoligonos.push({ id, objeto: poli, marcadores: vertices, nombre: `Área ${historialPoligonos.length + 1}`, areaTxt: "" });
     actualizarInfoPoligono(id);
     puntosTemp = []; marcadoresTemp = []; modoPoligono = false; document.getElementById('btn-poligono').style.backgroundColor = "#27ae60";
 });
 
 // =========================================================
-// 6. GESTIÓN DE LISTAS
+// 6. ACTUALIZACIÓN DE LISTAS Y ETIQUETAS
 // =========================================================
-function actualizarListaLineas() {
-    const ui = document.getElementById('lista-medidas'); ui.innerHTML = "";
-    historialMediciones.forEach(m => {
-        ui.innerHTML += `<li style="border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between;">
-            <span>${m.nombre}: <b>${m.dist.toFixed(1)}m</b></span>
-            <button onclick="borrarLinea(${m.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button></li>`;
-    });
-}
-
-function actualizarInfoPoligono(id) {
-    const p = historialPoligonos.find(x => x.id === id); if (!p) return;
-    let area = "---";
-    if (window.L.GeometryUtil) {
-        const a = L.GeometryUtil.geodesicArea(p.objeto.getLatLngs()[0]);
-        area = a > 10000 ? (a/10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
-    }
-    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${area}`, { permanent: true, direction: 'center', className: 'etiqueta-area' }).openTooltip();
-    const ui = document.getElementById('lista-poligonos'); ui.innerHTML = "";
-    historialPoligonos.forEach(x => {
-        ui.innerHTML += `<li style="border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between;">
-            <span>${x.nombre}: <b>${area}</b></span>
-            <button onclick="borrarPoligono(${x.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button></li>`;
-    });
-}
 
 function actualizarListaPuntos() {
     const ui = document.getElementById('lista-puntos'); ui.innerHTML = "";
     historialPuntos.forEach(p => {
         const li = document.createElement('li');
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
-        li.innerHTML = `<input type="text" value="${p.nombre}" onchange="cambiarNombrePunto(${p.id}, this.value)" style="background:none; border:1px solid #555; color:#fff; width:100px; font-size:0.8em;">
+        li.innerHTML = `<input type="text" value="${p.nombre}" onchange="cambiarNombrePunto(${p.id}, this.value)" style="background:none; border:1px solid #555; color:#fff; width:110px; font-size:0.8em;">
             <button onclick="borrarPunto(${p.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
         ui.appendChild(li);
     });
 }
 
+function actualizarListaLineas() {
+    const ui = document.getElementById('lista-medidas'); ui.innerHTML = "";
+    historialMediciones.forEach(m => {
+        const txt = m.dist > 1000 ? (m.dist/1000).toFixed(2)+"km" : m.dist.toFixed(1)+"m";
+        m.linea.bindTooltip(`<b>${m.nombre}</b><br>${txt}`, { permanent: true, direction: 'center' }).openTooltip();
+        
+        const li = document.createElement('li');
+        li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
+        li.innerHTML = `<div style="display:flex; flex-direction:column;">
+                <input type="text" value="${m.nombre}" onchange="cambiarNombreLinea(${m.id}, this.value)" style="background:none; border:1px solid #555; color:#3498db; width:100px; font-size:0.8em;">
+                <small style="color:#aaa;">${txt}</small>
+            </div>
+            <button onclick="borrarLinea(${m.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
+        ui.appendChild(li);
+    });
+}
+
+function actualizarInfoPoligono(id) {
+    const p = historialPoligonos.find(x => x.id === id); if (!p) return;
+    let area = "Calculando...";
+    if (window.L.GeometryUtil) {
+        const a = L.GeometryUtil.geodesicArea(p.objeto.getLatLngs()[0]);
+        area = a > 10000 ? (a/10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
+    }
+    p.areaTxt = area;
+    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${area}`, { permanent: true, direction: 'center', className: 'etiqueta-area' }).openTooltip();
+    
+    const ui = document.getElementById('lista-poligonos'); ui.innerHTML = "";
+    historialPoligonos.forEach(x => {
+        const li = document.createElement('li');
+        li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
+        li.innerHTML = `<div style="display:flex; flex-direction:column;">
+                <input type="text" value="${x.nombre}" onchange="cambiarNombrePoligono(${x.id}, this.value)" style="background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;">
+                <small style="color:#aaa;">${x.areaTxt}</small>
+            </div>
+            <button onclick="borrarPoligono(${x.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
+        ui.appendChild(li);
+    });
+}
+
+// =========================================================
+// 7. FUNCIONES GLOBALES (CAMBIO NOMBRE Y BORRADO)
+// =========================================================
 window.cambiarNombrePunto = (id, n) => { 
     const p = historialPuntos.find(x => x.id === id); 
-    if (p) { p.nombre = n; p.m.bindPopup(`<b>${n}</b><br>${decimalADMS(p.lat,true)}`).openPopup(); } 
+    if (p) { p.nombre = n; p.m.getPopup() ? p.m.setPopupContent(`<b>${n}</b>`) : p.m.bindPopup(`<b>${n}</b>`); } 
+};
+window.cambiarNombreLinea = (id, n) => {
+    const m = historialMediciones.find(x => x.id === id);
+    if (m) { m.nombre = n; actualizarListaLineas(); }
+};
+window.cambiarNombrePoligono = (id, n) => {
+    const x = historialPoligonos.find(p => p.id === id);
+    if (x) { x.nombre = n; actualizarInfoPoligono(id); }
 };
 
 window.borrarLinea = id => { const i = historialMediciones.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialMediciones[i].linea); historialMediciones.splice(i, 1); actualizarListaLineas(); } };
-window.borrarPoligono = id => { const i = historialPoligonos.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialPoligonos[i].objeto); historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m)); historialPoligonos.splice(i, 1); actualizarInfoPoligono(); } };
+window.borrarPoligono = id => { const i = historialPoligonos.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialPoligonos[i].objeto); historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m)); historialPoligonos.splice(i, 1); const ui = document.getElementById('lista-poligonos'); ui.innerHTML = ""; historialPoligonos.forEach(x => actualizarInfoPoligono(x.id)); } };
 window.borrarPunto = id => { const i = historialPuntos.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialPuntos[i].m); historialPuntos.splice(i, 1); actualizarListaPuntos(); } };
