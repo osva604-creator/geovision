@@ -13,7 +13,7 @@
 <body>
     <div id="app-container">
         <header>
-            <h1>GeoVision 2026 SACALA DEL ANGULO MARCOOOOOOOOOOOOOOOOOS</h1>
+            <h1>GeoVision 2026</h1>
         </header>
 
         <main>
@@ -33,6 +33,18 @@
                 <div id="telemetria-drone" style="margin-top: 10px; font-size: 0.8em; color: #f1c40f;"></div>
                 <ul id="lista-puntos" style="list-style: none; padding: 0; color: #ccc;">
                 </ul>
+                <hr>
+                <h3>Calculador de Objetivo (Mira)</h3>
+                <div id="panel-herramientas"
+                    style="margin-top: 15px; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444;">
+                    <h4 style="margin-top: 0; color: #3498db;">📏 MEDIR</h4>
+                    <button id="btn-regla"
+                        style="width: 100%; padding: 8px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Medir Distancia
+                    </button>
+                    <div id="resultado-regla" style="margin-top: 10px; font-weight: bold; color: #2ecc71;"></div>
+                    <small style="color: #aaa; font-size: 0.8em;">* Haz clic en dos puntos del mapa para medir.</small>
+                </div>
             </aside>
         </main>
         <hr>

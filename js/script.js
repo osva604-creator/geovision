@@ -1,27 +1,43 @@
 // =========================================================
 // 1. VARIABLES GLOBALES Y CONFIGURACIÓN
 // =========================================================
+// =========================================================
+// 1. VARIABLES GLOBALES Y CONFIGURACIÓN (GOOGLE MAPS)
+// =========================================================
 let ultimasCoordsReales = { lat: 0, lon: 0, alt: 0 };
 
-const capaCalles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap',
-    maxZoom: 19
+// Capa de Google Maps "Street" (Calles tradicionales)
+const googleStreet = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+    maxZoom: 21,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+    attribution: '&copy; Google Maps'
 });
 
-const capaSatelite = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-    attribution: '© Google Satellite',
-    maxZoom: 21
+// Capa de Google Maps "Satelital" (Solo imagen)
+const googleSat = L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+    maxZoom: 10,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+    attribution: '&copy; Google Maps'
+});
+
+// Capa de Google Maps "Híbrido" (Satélite + Calles)
+const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    maxZoom: 21,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+    attribution: '&copy; Google Maps'
 });
 
 const map = L.map('map', {
     center: [0, 0],
     zoom: 2,
-    layers: [capaSatelite]
+    layers: [googleHybrid] // Arranca con el Híbrido por defecto
 });
 
+// Selector de capas
 const mapasBase = {
-    "Mapa de Calles": capaCalles,
-    "Vista Satelital": capaSatelite
+    "Google Calles": googleStreet,
+    "Google Satélite": googleSat,
+    "Google Híbrido": googleHybrid
 };
 L.control.layers(mapasBase).addTo(map);
 
@@ -86,18 +102,53 @@ function proyectarCoordenada(lat, lon, distanciaMetros, rumboGrados) {
 // =========================================================
 // 3. EVENTOS DE MAPA
 // =========================================================
-
+// Localización del usuario REFORZADA
 btnLocalizar.addEventListener('click', () => {
     if (navigator.geolocation) {
-        infoCoords.innerText = "Localizando...";
-        navigator.geolocation.getCurrentPosition((posicion) => {
-            const lat = posicion.coords.latitude;
-            const lon = posicion.coords.longitude;
-            infoCoords.innerHTML = `<strong>Ubicación:</strong><br>${decimalADMS(lat, true)}<br>${decimalADMS(lon, false)}`;
-            map.setView([lat, lon], 17);
-            if (marcador) map.removeLayer(marcador);
-            marcador = L.marker([lat, lon]).addTo(map).bindPopup("¡Estás aquí!").openPopup();
-        });
+        infoCoords.innerText = "Buscando señal GPS de alta precisión...";
+
+        // Configuraciones para mejorar la puntería
+        const opcionesGPS = {
+            enableHighAccuracy: true, // Fuerza el uso de GPS real, no solo IP
+            timeout: 10000,           // Espera hasta 10 segundos
+            maximumAge: 0             // No uses una ubicación vieja guardada
+        };
+
+        navigator.geolocation.getCurrentPosition(
+            (posicion) => {
+                const lat = posicion.coords.latitude;
+                const lon = posicion.coords.longitude;
+                const precision = posicion.coords.accuracy; // Precisión en metros
+
+                infoCoords.innerHTML = `
+                    <strong>Mi Ubicación:</strong><br>
+                    ${decimalADMS(lat, true)}<br>
+                    ${decimalADMS(lon, false)}<br>
+                    <small style="color: #3498db;">Precisión: +/- ${precision.toFixed(0)}m</small>
+                `;
+
+                map.setView([lat, lon], 18); // Zoom bien de cerca
+
+                if (marcador) map.removeLayer(marcador);
+
+                // Marcador azul distintivo para el usuario
+                marcador = L.circleMarker([lat, lon], {
+                    radius: 8,
+                    fillColor: "#3498db",
+                    color: "#fff",
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(map).bindPopup("Estás aquí (Aprox.)").openPopup();
+            },
+            (error) => {
+                console.error(error);
+                alert("Error: Asegúrate de dar permisos de ubicación en el navegador y tener el GPS activo.");
+            },
+            opcionesGPS
+        );
+    } else {
+        alert("Tu navegador no soporta geolocalización.");
     }
 });
 
@@ -231,4 +282,82 @@ document.getElementById('btn-proyectar').addEventListener('click', () => {
     }).addTo(map);
 
     document.getElementById('resultado-mira').innerHTML = `🎯 Mira fijada a ${distanciaHorizontal.toFixed(1)}m`;
+});
+// =========================================================
+// 6. HERRAMIENTA DE MEDICIÓN (REGLA)
+// =========================================================
+let modoMedicion = false;
+let puntosMedicion = [];
+let lineaMedicion = null;
+let marcadorMedicion1 = null;
+let marcadorMedicion2 = null;
+
+const btnRegla = document.getElementById('btn-regla');
+const resRegla = document.getElementById('resultado-regla');
+
+btnRegla.addEventListener('click', () => {
+    modoMedicion = !modoMedicion; // Toggle On/Off
+
+    if (modoMedicion) {
+        // Activado
+        btnRegla.style.backgroundColor = "#e67e22"; // Color naranja de alerta
+        btnRegla.innerText = "Modo Medición Activo (Clic en mapa)";
+        map.getContainer().style.cursor = 'crosshair'; // Cambiamos el puntero
+
+        // Limpiamos medidas previas
+        if (lineaMedicion) map.removeLayer(lineaMedicion);
+        if (marcadorMedicion1) map.removeLayer(marcadorMedicion1);
+        if (marcadorMedicion2) map.removeLayer(marcadorMedicion2);
+        puntosMedicion = [];
+        resRegla.innerText = "";
+    } else {
+        // Desactivado
+        btnRegla.style.backgroundColor = "#3498db";
+        btnRegla.innerText = "Activar Regla (Medir Distancia)";
+        map.getContainer().style.cursor = '';
+    }
+});
+
+// Modificamos el evento de clic del mapa existente o añadimos esta lógica
+map.on('click', function (e) {
+    if (!modoMedicion) return; // Si la regla no está activa, ignoramos el resto
+
+    puntosMedicion.push(e.latlng);
+
+    // Ponemos un puntito visual donde hizo clic
+    const dot = L.circleMarker(e.latlng, { radius: 5, color: '#3498db' }).addTo(map);
+
+    if (puntosMedicion.length === 1) {
+        marcadorMedicion1 = dot;
+        resRegla.innerText = "Selecciona el segundo punto...";
+    }
+
+    if (puntosMedicion.length === 2) {
+        marcadorMedicion2 = dot;
+
+        // Calculamos distancia real
+        const d = puntosMedicion[0].distanceTo(puntosMedicion[1]);
+
+        // Trazamos la línea
+        lineaMedicion = L.polyline(puntosMedicion, {
+            color: '#3498db',
+            weight: 3,
+            dashArray: '5, 10'
+        }).addTo(map);
+
+        // Mostramos resultado
+        const textoDistancia = d > 1000 ? (d / 1000).toFixed(2) + " km" : d.toFixed(1) + " m";
+        resRegla.innerHTML = `📏 Distancia: ${textoDistancia}`;
+
+        // Popup informativo en el centro de la línea
+        L.popup()
+            .setLatLng(lineaMedicion.getBounds().getCenter())
+            .setContent(`<b>Distancia:</b> ${textoDistancia}`)
+            .openOn(map);
+
+        // Reseteamos para una nueva medición pero mantenemos el modo activo
+        puntosMedicion = [];
+        // Desactivamos el modo automáticamente para evitar clics accidentales
+        setTimeout(() => btnRegla.click(), 2000);
+    }
 });
