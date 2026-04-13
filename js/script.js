@@ -198,25 +198,62 @@ function actualizarListaLineas() {
 }
 
 function actualizarInfoPoligono(id) {
-    const p = historialPoligonos.find(x => x.id === id); if (!p) return;
-    let area = "Calculando...";
-    if (window.L.GeometryUtil) {
-        const a = L.GeometryUtil.geodesicArea(p.objeto.getLatLngs()[0]);
-        area = a > 10000 ? (a/10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
+    const p = historialPoligonos.find(x => x.id === id);
+    if (!p) return;
+
+    let areaCalculada = "---";
+
+    // Intentamos calcular con la librería
+    try {
+        if (window.L && window.L.GeometryUtil) {
+            // Obtenemos los puntos (asegurando que sea el array correcto)
+            const latlngs = p.objeto.getLatLngs()[0];
+            const a = L.GeometryUtil.geodesicArea(latlngs);
+            
+            if (a > 10000) {
+                areaCalculada = (a / 10000).toFixed(2) + " ha";
+            } else {
+                areaCalculada = a.toFixed(1) + " m²";
+            }
+        } else {
+            console.error("Librería GeometryUtil no detectada");
+            areaCalculada = "Error Lib";
+        }
+    } catch (e) {
+        console.error("Error en cálculo de área:", e);
+        areaCalculada = "Error";
     }
-    p.areaTxt = area;
-    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${area}`, { permanent: true, direction: 'center', className: 'etiqueta-area' }).openTooltip();
+
+    // Guardamos el texto en el objeto para que la lista lo use
+    p.areaTxt = areaCalculada;
+
+    // Actualizamos el cartelito flotante sobre el polígono
+    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${areaCalculada}`, {
+        permanent: true,
+        direction: 'center',
+        className: 'etiqueta-area'
+    }).openTooltip();
+
+    // Refrescamos la lista lateral para que aparezca el número
+    actualizarListaLateralPoligonos();
+}
+
+// Esta función es para que la lista lateral no se rompa
+function actualizarListaLateralPoligonos() {
+    const ui = document.getElementById('lista-poligonos');
+    if (!ui) return;
+    ui.innerHTML = "";
     
-    const ui = document.getElementById('lista-poligonos'); ui.innerHTML = "";
     historialPoligonos.forEach(x => {
-        const li = document.createElement('li');
-        li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
-        li.innerHTML = `<div style="display:flex; flex-direction:column;">
-                <input type="text" value="${x.nombre}" onchange="cambiarNombrePoligono(${x.id}, this.value)" style="background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;">
-                <small style="color:#aaa;">${x.areaTxt}</small>
-            </div>
-            <button onclick="borrarPoligono(${x.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
-        ui.appendChild(li);
+        ui.innerHTML += `
+            <li style="border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; flex-direction:column;">
+                    <input type="text" value="${x.nombre}" onchange="cambiarNombrePoligono(${x.id}, this.value)" 
+                           style="background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;">
+                    <small style="color:#aaa;">${x.areaTxt || "---"}</small>
+                </div>
+                <button onclick="borrarPoligono(${x.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>
+            </li>`;
     });
 }
 
