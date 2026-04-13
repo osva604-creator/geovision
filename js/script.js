@@ -1,4 +1,13 @@
 // =========================================================
+// TEST DE LIBRERÍA
+window.onload = function () {
+    if (window.L && L.GeometryUtil) {
+        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA Y LISTA");
+    } else {
+        console.error("❌ ERROR: La librería de Geometría NO CARGÓ. Revisar ruta del HTML.");
+        alert("Atención: El cálculo de áreas no funcionará porque la librería no cargó.");
+    }
+};
 // 1. VARIABLES GLOBALES Y MAPA
 // =========================================================
 let ultimasCoordsReales = { lat: 0, lon: 0 };
@@ -149,7 +158,6 @@ map.on('dblclick', () => {
     const id = Date.now();
     const poli = L.polygon(puntosTemp, { color: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
 
-    // Convertir a vértices editables
     const vertices = [];
     puntosTemp.forEach((ll) => {
         let v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: 'vertice-poligono', iconSize: [10, 10] }) }).addTo(map);
@@ -196,6 +204,7 @@ function actualizarListaLineas() {
         ui.appendChild(li);
     });
 }
+
 function actualizarInfoPoligono(id) {
     const p = historialPoligonos.find(x => x.id === id);
     if (!p) return;
@@ -203,28 +212,23 @@ function actualizarInfoPoligono(id) {
     const ll = p.objeto.getLatLngs()[0];
     let areaTexto = "Calculando...";
 
-    // Forzamos la detección de la librería cargada en el HTML
-    if (window.L && window.L.GeometryUtil) {
+    // Usamos la librería local que creamos recién
+    if (L.GeometryUtil && L.GeometryUtil.geodesicArea) {
         const a = L.GeometryUtil.geodesicArea(ll);
         areaTexto = a > 10000 ? (a / 10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
-    } else {
-        areaTexto = "Cargando lib...";
     }
 
-    p.areaTxt = areaTexto; // Guardamos el valor
-
-    // Actualizar etiqueta en el mapa
+    p.areaTxt = areaTexto;
     p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${areaTexto}`, {
         permanent: true,
         direction: 'center',
         className: 'etiqueta-area'
     }).openTooltip();
 
-    actualizarListaLateralPoligonos();
+    actualizarListaPoligonos();
 }
 
-// Esta función es para que la lista lateral no se rompa
-function actualizarListaLateralPoligonos() {
+function actualizarListaPoligonos() {
     const ui = document.getElementById('lista-poligonos');
     if (!ui) return;
     ui.innerHTML = "";
@@ -243,11 +247,11 @@ function actualizarListaLateralPoligonos() {
 }
 
 // =========================================================
-// 7. FUNCIONES GLOBALES (CAMBIO NOMBRE Y BORRADO)
+// 7. FUNCIONES GLOBALES
 // =========================================================
 window.cambiarNombrePunto = (id, n) => {
     const p = historialPuntos.find(x => x.id === id);
-    if (p) { p.nombre = n; p.m.getPopup() ? p.m.setPopupContent(`<b>${n}</b>`) : p.m.bindPopup(`<b>${n}</b>`); }
+    if (p) { p.nombre = n; p.m.bindPopup(`<b>${n}</b><br>${decimalADMS(p.lat, true)}`); }
 };
 window.cambiarNombreLinea = (id, n) => {
     const m = historialMediciones.find(x => x.id === id);
@@ -259,5 +263,5 @@ window.cambiarNombrePoligono = (id, n) => {
 };
 
 window.borrarLinea = id => { const i = historialMediciones.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialMediciones[i].linea); historialMediciones.splice(i, 1); actualizarListaLineas(); } };
-window.borrarPoligono = id => { const i = historialPoligonos.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialPoligonos[i].objeto); historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m)); historialPoligonos.splice(i, 1); const ui = document.getElementById('lista-poligonos'); ui.innerHTML = ""; historialPoligonos.forEach(x => actualizarInfoPoligono(x.id)); } };
+window.borrarPoligono = id => { const i = historialPoligonos.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialPoligonos[i].objeto); historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m)); historialPoligonos.splice(i, 1); const ui = document.getElementById('lista-poligonos'); if (ui) ui.innerHTML = ""; historialPoligonos.forEach(x => actualizarInfoPoligono(x.id)); } };
 window.borrarPunto = id => { const i = historialPuntos.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialPuntos[i].m); historialPuntos.splice(i, 1); actualizarListaPuntos(); } };
