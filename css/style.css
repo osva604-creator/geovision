@@ -125,3 +125,31 @@ button:hover {
     align-items: center;
     justify-content: center;
 }
+/* Optimizaciones para Celulares */
+@media (max-width: 768px) {
+    #app-container {
+        flex-direction: column; /* El panel se va abajo del mapa */
+    }
+
+    #sidebar {
+        width: 100%;
+        height: 40vh; /* El panel ocupa el 40% de la pantalla */
+        overflow-y: auto;
+        padding: 15px;
+    }
+
+    #map-container {
+        height: 60vh; /* El mapa ocupa el 60% arriba */
+    }
+
+    button {
+        padding: 12px; /* Botones más grandes para el dedo */
+        font-size: 1rem !important;
+        margin-bottom: 8px;
+    }
+
+    input[type="number"], input[type="text"] {
+        padding: 10px;
+        font-size: 1rem;
+    }
+}
