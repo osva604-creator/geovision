@@ -154,6 +154,41 @@ document.getElementById('btn-proyectar').onclick = () => {
     L.polyline([[ultimasCoordsReales.lat, ultimasCoordsReales.lon], [obj.lat, obj.lon]], { color: 'red', dashArray: '5,10' }).addTo(map);
     document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distH.toFixed(1)}m`;
 };
+// --- FUNCIÓN DEL CLIMA PARA UBICACIÓN ACTUAL ---
+document.getElementById('btn-clima-actual').onclick = () => {
+    // Pedimos la ubicación al navegador
+    navigator.geolocation.getCurrentPosition(async (p) => {
+        const lat = p.coords.latitude;
+        const lon = p.coords.longitude;
+        const apiKey = "ee2057b73b750d1fae6127e3ce2d091d";
+        const infoDiv = document.getElementById('info-clima-actual');
+        
+        infoDiv.innerText = "Obteniendo clima local...";
+
+        try {
+            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=es`);
+            const data = await resp.json();
+
+            const temp = data.main.temp;
+            const viento = data.wind.speed * 3.6;
+            const desc = data.weather[0].description;
+            const humedad = data.main.humidity;
+
+            infoDiv.innerHTML = `
+                <div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid #2980b9; margin-top:5px;">
+                    <span style="text-transform: capitalize; font-weight: bold; color: #3498db;">${desc}</span><br>
+                    🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
+                    💧 <b>Humedad:</b> ${humedad}%<br>
+                    💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
+                </div>
+            `;
+        } catch (err) {
+            infoDiv.innerText = "Error al conectar con el satélite.";
+        }
+    }, () => {
+        alert("No se pudo obtener tu ubicación actual. Asegurate de tener el GPS activo.");
+    });
+};
 
 // =========================================================
 // 5. HERRAMIENTAS DE DIBUJO
