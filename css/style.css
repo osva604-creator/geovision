@@ -57,7 +57,7 @@ button {
 }
 
 button:hover {
-    background-color: #005a9e;
+    background-color: #0a6ebf;
 }
 
 #lista-puntos, #lista-medidas, #lista-poligonos {
@@ -105,7 +105,9 @@ button:hover {
     padding: 0 5px;
     transition: transform 0.2s;
 }
-
+btn-borrar-medida:hover {
+    background-color: #758088;
+}
 .btn-borrar-medida:hover {
     transform: scale(1.2);
     color: #ff5e4d;
@@ -175,4 +177,26 @@ button:hover {
         width: 0px;
         background: transparent;
     }
+}
+/* Estilo para las etiquetas de los puntos */
+.etiqueta-punto {
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    border: 1px solid #27ae60;
+    font-weight: bold;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    padding: 2px 5px;
+}
+/* Efecto para los botones al pasar el mouse */
+button:hover {
+    filter: brightness(1.2); /* Aumenta un poco el brillo del color original */
+    transform: translateY(-2px); /* El botón sube 2 píxeles (da sensación de clic) */
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3); /* Agrega una sombrita para dar profundidad */
+    cursor: pointer; /* Asegura que el puntero cambie a la manito */
+}
+
+/* Para que el cambio de color sea suave y no de golpe */
+button {
+    transition: all 0.3s ease; /* Hace que el efecto dure 0.3 segundos */
 }

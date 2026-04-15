@@ -1,5 +1,6 @@
 // =========================================================
 // TEST DE LIBRERÍA
+// =========================================================
 window.onload = function () {
     if (window.L && L.GeometryUtil) {
         console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA Y LISTA");
@@ -8,6 +9,7 @@ window.onload = function () {
         alert("Atención: El cálculo de áreas no funcionará porque la librería no cargó.");
     }
 };
+
 // 1. VARIABLES GLOBALES Y MAPA
 // =========================================================
 let ultimasCoordsReales = { lat: 0, lon: 0 };
@@ -92,12 +94,50 @@ inputDrone.onchange = function () {
             if (mA) document.getElementById('manual-alt').value = Math.abs(parseFloat(mA[1])).toFixed(0);
 
             document.getElementById('telemetria-drone').innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(rLat, true)} | ${decimalADMS(rLon, false)}`;
+
+            if (document.getElementById('btn-clima')) document.getElementById('btn-clima').style.display = 'block';
+
             L.marker([rLat, rLon], { icon: droneIcon }).addTo(map).bindPopup(`<img src="${fotoURL}" width="150">`).openPopup();
             map.flyTo([rLat, rLon], 19);
         };
         reader.readAsText(file.slice(0, 60000));
     });
 };
+
+// --- FUNCIÓN DEL CLIMA ---
+if (document.getElementById('btn-clima')) {
+    document.getElementById('btn-clima').onclick = async () => {
+        if (!ultimasCoordsReales.lat) return;
+
+        const apiKey = "ee2057b73b750d1fae6127e3ce2d091d";
+        const lat = ultimasCoordsReales.lat;
+        const lon = ultimasCoordsReales.lon;
+
+        const infoDiv = document.getElementById('info-clima');
+        infoDiv.innerText = "Consultando satélite meteorológico...";
+
+        try {
+            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=es`);
+            const data = await resp.json();
+
+            const temp = data.main.temp;
+            const viento = data.wind.speed * 3.6;
+            const desc = data.weather[0].description;
+            const humedad = data.main.humidity;
+
+            infoDiv.innerHTML = `
+                <div style="background: #2c3e50; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; margin-top:10px;">
+                    <span style="text-transform: capitalize; font-weight: bold; color: #3498db;">${desc}</span><br>
+                    🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
+                    💧 <b>Humedad:</b> ${humedad}%<br>
+                    💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
+                </div>
+            `;
+        } catch (err) {
+            infoDiv.innerText = "Error al obtener datos del clima.";
+        }
+    };
+}
 
 // =========================================================
 // 4. CALCULADOR DE MIRA
@@ -134,8 +174,16 @@ document.getElementById('btn-modo-punto').onclick = () => {
 map.on('click', e => {
     if (modoMarcadoManual) {
         const id = Date.now();
+        const nombreInicial = `Punto ${historialPuntos.length + 1}`;
         const m = L.marker(e.latlng, { icon: droneIcon, draggable: true }).addTo(map);
-        historialPuntos.push({ id, m, nombre: `Punto ${historialPuntos.length + 1}`, lat: e.latlng.lat, lon: e.latlng.lng });
+
+        m.bindTooltip(nombreInicial, {
+            permanent: true,
+            direction: 'top',
+            className: 'etiqueta-punto'
+        }).openTooltip();
+
+        historialPuntos.push({ id, m, nombre: nombreInicial, lat: e.latlng.lat, lon: e.latlng.lng });
         actualizarListaPuntos();
     } else if (modoMedicion) {
         puntosTemp.push(e.latlng);
@@ -176,7 +224,6 @@ map.on('dblclick', () => {
 // =========================================================
 // 6. ACTUALIZACIÓN DE LISTAS Y ETIQUETAS
 // =========================================================
-
 function actualizarListaPuntos() {
     const ui = document.getElementById('lista-puntos'); ui.innerHTML = "";
     historialPuntos.forEach(p => {
@@ -212,7 +259,6 @@ function actualizarInfoPoligono(id) {
     const ll = p.objeto.getLatLngs()[0];
     let areaTexto = "Calculando...";
 
-    // Usamos la librería local que creamos recién
     if (L.GeometryUtil && L.GeometryUtil.geodesicArea) {
         const a = L.GeometryUtil.geodesicArea(ll);
         areaTexto = a > 10000 ? (a / 10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
@@ -247,11 +293,15 @@ function actualizarListaPoligonos() {
 }
 
 // =========================================================
-// 7. FUNCIONES GLOBALES
+// 7. FUNCIONES GLOBALES DE BORRADO Y NOMBRES
 // =========================================================
 window.cambiarNombrePunto = (id, n) => {
     const p = historialPuntos.find(x => x.id === id);
-    if (p) { p.nombre = n; p.m.bindPopup(`<b>${n}</b><br>${decimalADMS(p.lat, true)}`); }
+    if (p) {
+        p.nombre = n;
+        p.m.setTooltipContent(n);
+        p.m.bindPopup(`<b>${n}</b>`);
+    }
 };
 window.cambiarNombreLinea = (id, n) => {
     const m = historialMediciones.find(x => x.id === id);
@@ -262,6 +312,52 @@ window.cambiarNombrePoligono = (id, n) => {
     if (x) { x.nombre = n; actualizarInfoPoligono(id); }
 };
 
-window.borrarLinea = id => { const i = historialMediciones.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialMediciones[i].linea); historialMediciones.splice(i, 1); actualizarListaLineas(); } };
-window.borrarPoligono = id => { const i = historialPoligonos.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialPoligonos[i].objeto); historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m)); historialPoligonos.splice(i, 1); const ui = document.getElementById('lista-poligonos'); if (ui) ui.innerHTML = ""; historialPoligonos.forEach(x => actualizarInfoPoligono(x.id)); } };
-window.borrarPunto = id => { const i = historialPuntos.findIndex(x => x.id === id); if (i !== -1) { map.removeLayer(historialPuntos[i].m); historialPuntos.splice(i, 1); actualizarListaPuntos(); } };
+window.borrarLinea = id => { 
+    const i = historialMediciones.findIndex(x => x.id === id); 
+    if (i !== -1) { map.removeLayer(historialMediciones[i].linea); historialMediciones.splice(i, 1); actualizarListaLineas(); } 
+};
+
+window.borrarPoligono = id => { 
+    const i = historialPoligonos.findIndex(x => x.id === id); 
+    if (i !== -1) { 
+        map.removeLayer(historialPoligonos[i].objeto); 
+        historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m)); 
+        historialPoligonos.splice(i, 1); 
+        actualizarListaPoligonos(); 
+    } 
+};
+
+window.borrarPunto = id => { 
+    const i = historialPuntos.findIndex(x => x.id === id); 
+    if (i !== -1) { map.removeLayer(historialPuntos[i].m); historialPuntos.splice(i, 1); actualizarListaPuntos(); } 
+};
+
+window.borrarTodoElMapa = () => {
+    if (confirm("¿Estás seguro de que querés borrar todas las mediciones y puntos?")) {
+        historialMediciones.forEach(m => map.removeLayer(m.linea));
+        historialMediciones = [];
+        actualizarListaLineas();
+
+        historialPoligonos.forEach(p => {
+            map.removeLayer(p.objeto);
+            p.marcadores.forEach(m => map.removeLayer(m));
+        });
+        historialPoligonos = [];
+        actualizarListaPoligonos();
+
+        historialPuntos.forEach(p => map.removeLayer(p.m));
+        historialPuntos = [];
+        actualizarListaPuntos();
+
+        puntosTemp = [];
+        marcadoresTemp.forEach(m => map.removeLayer(m));
+        marcadoresTemp = [];
+
+        alert("Mapa limpio.");
+    }
+};
+
+// =========================================================
+// 8. CONEXIÓN FINAL DE EVENTOS
+// =========================================================
+document.getElementById('btn-borrar-todo').onclick = window.borrarTodoElMapa;
