@@ -8,7 +8,6 @@ window.onload = function () {
         console.error("❌ ERROR: La librería de Geometría NO CARGÓ. Revisar ruta del HTML.");
         alert("Atención: El cálculo de áreas no funcionará porque la librería no cargó.");
     }
-    cargarDesdeLocal();
 };
 
 // 1. VARIABLES GLOBALES Y MAPA
