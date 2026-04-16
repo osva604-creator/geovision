@@ -267,6 +267,7 @@ function actualizarListaPuntos() {
         li.innerHTML = `<input type="text" value="${p.nombre}" onchange="cambiarNombrePunto(${p.id}, this.value)" style="background:none; border:1px solid #555; color:#fff; width:110px; font-size:0.8em;">
             <button onclick="borrarPunto(${p.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
         ui.appendChild(li);
+        guardarEnLocal();
     });
 }
 
@@ -284,6 +285,7 @@ function actualizarListaLineas() {
             </div>
             <button onclick="borrarLinea(${m.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
         ui.appendChild(li);
+        guardarEnLocal();
     });
 }
 
@@ -313,6 +315,7 @@ function actualizarListaPoligonos() {
     const ui = document.getElementById('lista-poligonos');
     if (!ui) return;
     ui.innerHTML = "";
+    guardarEnLocal();
 
     historialPoligonos.forEach(x => {
         ui.innerHTML += `
@@ -425,3 +428,39 @@ self.addEventListener('fetch', event => {
     })
   );
 });
+// =========================================================
+// 10. FUNCIONES DE GUARDADO EN LOCAL   
+// =========================================================
+function guardarEnLocal() {
+    const datosGeo = {
+        mediciones: historialMediciones.map(m => ({
+            puntos: [m.p1, m.p2],
+            distancia: m.distancia
+        })),
+        puntosInteres: historialPuntos.map(p => ({
+            id: p.id,
+            lat: p.m.getLatLng().lat,
+            lng: p.m.getLatLng().lng,
+            nota: p.nota
+        }))
+    };
+    localStorage.setItem('geovision_data', JSON.stringify(datosGeo));
+}
+
+// --- FUNCIÓN PARA CARGAR AL INICIAR ---
+function cargarDesdeLocal() {
+    const guardado = localStorage.getItem('geovision_data');
+    if (!guardado) return;
+
+    const datos = JSON.parse(guardado);
+
+    // Rehidratar Puntos de Interés
+    datos.puntosInteres.forEach(p => {
+        // Aquí llamas a tu lógica existente para crear el marcador
+        // Usando los datos de p.lat y p.lng
+        agregarMarcadorManual(p.lat, p.lng, p.nota); 
+    });
+
+    // Nota: Para las líneas/polígonos, deberás iterar datos.mediciones
+    // y llamar a tus funciones de dibujo actuales.
+}
