@@ -6,7 +6,7 @@ window.onload = function () {
         console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA Y LISTA");
     } else {
         console.error("❌ ERROR: La librería de Geometría NO CARGÓ. Revisar ruta del HTML.");
-        alert("Atención: El cálculo de áreas no funcionará porque la librería no cargó.");
+        alert("Atención: El cálculo de áreas no funcionará porque la librería no cargó."); // Cargamos lo que haya en local aunque no se puedan calcular áreas, para no perder todo el trabajo previo.
     }
 };
 
@@ -34,6 +34,13 @@ const iconoMira = L.icon({
     iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png',
     iconSize: [40, 40], iconAnchor: [20, 20]
 });
+window.onload = function () {
+    if (window.L && L.GeometryUtil) {
+        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA");
+    }
+    // LANZAMOS LA CARGA DE DATOS GUARDADOS
+    cargarDesdeLocal();
+};
 
 // =========================================================
 // 2. FUNCIONES DE APOYO
@@ -399,25 +406,24 @@ window.borrarTodoElMapa = () => {
 // 8. CONEXIÓN FINAL DE EVENTOS
 // =========================================================
 document.getElementById('btn-borrar-todo').onclick = window.borrarTodoElMapa;
-
 // =========================================================
-// 10. FUNCIONES DE GUARDADO EN LOCAL (CORREGIDAS)
+// 9. FUNCIONES DE GUARDADO EN LOCAL (CORREGIDAS)
 // =========================================================
 function guardarEnLocal() {
     const datosGeo = {
-        // Guardamos solo coordenadas de las líneas
+        // Guardamos las coordenadas de las líneas y su distancia
         mediciones: historialMediciones.map(m => ({
             coords: m.linea.getLatLngs(),
             distancia: m.distancia
         })),
-        // Guardamos solo datos planos de los puntos
+        // Guardamos los puntos de interés
         puntosInteres: historialPuntos.map(p => ({
             id: p.id,
             lat: p.m.getLatLng().lat,
             lng: p.m.getLatLng().lng,
             nota: p.nota
         })),
-        // Guardamos coordenadas de los polígonos
+        // Guardamos los polígonos
         poligonos: historialPoligonos.map(p => ({
             coords: p.objeto.getLatLngs()[0],
             area: p.area,
@@ -426,5 +432,43 @@ function guardarEnLocal() {
     };
     localStorage.setItem('geovision_data', JSON.stringify(datosGeo));
 }
+function cargarDesdeLocal() {
+    const guardado = localStorage.getItem('geovision_data');
+    if (!guardado) return;
+    const datos = JSON.parse(guardado);
 
-// Llama a esta función al final de: actualizarListaLineas, actualizarListaPoligonos y actualizarListaPuntos
+    // 1. Re-dibujar Líneas
+    if (datos.mediciones) {
+        datos.mediciones.forEach(m => {
+            const linea = L.polyline(m.coords, { color: '#e74c3c', weight: 3 }).addTo(map);
+            // Restauramos la etiqueta con coordenadas y distancia
+            const latDest = m.coords[1].lat;
+            const lonDest = m.coords[1].lng;
+            linea.bindTooltip(
+                `Distancia: ${m.distancia} m<br>Destino: ${latDest.toFixed(5)}, ${lonDest.toFixed(5)}`, 
+                { permanent: true, direction: "center", className: "etiqueta-punto" }
+            ).openTooltip();
+            historialMediciones.push({ linea: linea, distancia: m.distancia });
+        });
+    }
+
+    // 2. Re-dibujar Puntos
+    if (datos.puntosInteres) {
+        datos.puntosInteres.forEach(p => {
+            agregarMarcadorManual(p.lat, p.lng, p.nota);
+        });
+    }
+
+    // 3. Re-dibujar Polígonos
+    if (datos.poligonos) {
+        datos.poligonos.forEach(p => {
+            const poly = L.polygon(p.coords, { color: '#27ae60', fillColor: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
+            poly.bindTooltip(`Área: ${p.area} m²`, { permanent: true, direction: "center", className: "etiqueta-punto" });
+            historialPoligonos.push({ objeto: poly, area: p.area, id: p.id, marcadores: [] });
+        });
+    }
+    
+    actualizarListaLineas();
+    actualizarListaPuntos();
+    actualizarListaPoligonos();
+}
