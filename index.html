@@ -111,9 +111,10 @@
     <link rel="manifest" href="manifest.json">
     <script>
         if ('serviceWorker' in navigator) {
+            // Registramos desde la raíz
             navigator.serviceWorker.register('./sw.js')
-                .then(() => console.log("Servicio Offline Activo"))
-                .catch(err => console.log("Error de registro", err));
+                .then(() => console.log("✅ LOOP: Service Worker registrado"))
+                .catch(err => console.log("❌ LOOP: Error al registrar", err));
         }
     </script>
 </body>
