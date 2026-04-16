@@ -8,6 +8,7 @@ window.onload = function () {
         console.error("❌ ERROR: La librería de Geometría NO CARGÓ. Revisar ruta del HTML.");
         alert("Atención: El cálculo de áreas no funcionará porque la librería no cargó.");
     }
+    cargarDesdeLocal();
 };
 
 // 1. VARIABLES GLOBALES Y MAPA
@@ -162,7 +163,7 @@ document.getElementById('btn-clima-actual').onclick = () => {
         const lon = p.coords.longitude;
         const apiKey = "ee2057b73b750d1fae6127e3ce2d091d";
         const infoDiv = document.getElementById('info-clima-actual');
-        
+
         infoDiv.innerText = "Obteniendo clima local...";
 
         try {
@@ -350,24 +351,24 @@ window.cambiarNombrePoligono = (id, n) => {
     if (x) { x.nombre = n; actualizarInfoPoligono(id); }
 };
 
-window.borrarLinea = id => { 
-    const i = historialMediciones.findIndex(x => x.id === id); 
-    if (i !== -1) { map.removeLayer(historialMediciones[i].linea); historialMediciones.splice(i, 1); actualizarListaLineas(); } 
+window.borrarLinea = id => {
+    const i = historialMediciones.findIndex(x => x.id === id);
+    if (i !== -1) { map.removeLayer(historialMediciones[i].linea); historialMediciones.splice(i, 1); actualizarListaLineas(); }
 };
 
-window.borrarPoligono = id => { 
-    const i = historialPoligonos.findIndex(x => x.id === id); 
-    if (i !== -1) { 
-        map.removeLayer(historialPoligonos[i].objeto); 
-        historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m)); 
-        historialPoligonos.splice(i, 1); 
-        actualizarListaPoligonos(); 
-    } 
+window.borrarPoligono = id => {
+    const i = historialPoligonos.findIndex(x => x.id === id);
+    if (i !== -1) {
+        map.removeLayer(historialPoligonos[i].objeto);
+        historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m));
+        historialPoligonos.splice(i, 1);
+        actualizarListaPoligonos();
+    }
 };
 
-window.borrarPunto = id => { 
-    const i = historialPuntos.findIndex(x => x.id === id); 
-    if (i !== -1) { map.removeLayer(historialPuntos[i].m); historialPuntos.splice(i, 1); actualizarListaPuntos(); } 
+window.borrarPunto = id => {
+    const i = historialPuntos.findIndex(x => x.id === id);
+    if (i !== -1) { map.removeLayer(historialPuntos[i].m); historialPuntos.splice(i, 1); actualizarListaPuntos(); }
 };
 
 window.borrarTodoElMapa = () => {
@@ -399,35 +400,7 @@ window.borrarTodoElMapa = () => {
 // 8. CONEXIÓN FINAL DE EVENTOS
 // =========================================================
 document.getElementById('btn-borrar-todo').onclick = window.borrarTodoElMapa;
-// =========================================================
-//9. servis worker para modo offline
-// =========================================================
-const CACHE_NAME = 'geovision-v1';
-// Agrega aquí las rutas exactas de tus archivos
-const assets = [
-  './',
-  './index.html',
-  './css/style.css',
-  './js/script.js',
-  './js/geometria.js',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js'
-];
 
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(assets))
-  );
-});
-
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request).then(response => {
-      return response || fetch(event.request);
-    })
-  );
-});
 // =========================================================
 // 10. FUNCIONES DE GUARDADO EN LOCAL   
 // =========================================================
@@ -458,7 +431,7 @@ function cargarDesdeLocal() {
     datos.puntosInteres.forEach(p => {
         // Aquí llamas a tu lógica existente para crear el marcador
         // Usando los datos de p.lat y p.lng
-        agregarMarcadorManual(p.lat, p.lng, p.nota); 
+        agregarMarcadorManual(p.lat, p.lng, p.nota);
     });
 
     // Nota: Para las líneas/polígonos, deberás iterar datos.mediciones
