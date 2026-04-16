@@ -1,25 +1,33 @@
-// =========================================================
-//1. servis worker para modo offline
-// =========================================================
 const CACHE_NAME = 'geovision-v1';
-// Agrega aquí las rutas exactas de tus archivos
+
+// Esta es la lista que me pasaste. 
+// Asegúrate de que las rutas coincidan con tus carpetas reales.
 const assets = [
     './',
     './index.html',
-    './css/style.css',
-    './js/script.js',
-    './js/geometria.js',
+    './style.css', 
+    './script.js',
+    './geometria.js',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js'
+    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
 
+// 1. Instalación: Guarda los archivos en el teléfono
 self.addEventListener('install', event => {
     event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => cache.addAll(assets))
+        caches.open(CACHE_NAME).then(cache => {
+            console.log('LOOP APP: Guardando archivos para modo offline...');
+            return cache.addAll(assets);
+        })
     );
 });
 
+// 2. Activación: Limpia cachés antiguos
+self.addEventListener('activate', event => {
+    console.log('LOOP APP: Service Worker Activado');
+});
+
+// 3. Estrategia de carga: Si no hay internet, usa el caché
 self.addEventListener('fetch', event => {
     event.respondWith(
         caches.match(event.request).then(response => {

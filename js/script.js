@@ -402,38 +402,30 @@ window.borrarTodoElMapa = () => {
 document.getElementById('btn-borrar-todo').onclick = window.borrarTodoElMapa;
 
 // =========================================================
-// 10. FUNCIONES DE GUARDADO EN LOCAL   
+// 10. FUNCIONES DE GUARDADO EN LOCAL (CORREGIDAS)
 // =========================================================
 function guardarEnLocal() {
     const datosGeo = {
+        // Guardamos solo coordenadas de las líneas
         mediciones: historialMediciones.map(m => ({
-            puntos: [m.p1, m.p2],
+            coords: m.linea.getLatLngs(),
             distancia: m.distancia
         })),
+        // Guardamos solo datos planos de los puntos
         puntosInteres: historialPuntos.map(p => ({
             id: p.id,
             lat: p.m.getLatLng().lat,
             lng: p.m.getLatLng().lng,
             nota: p.nota
+        })),
+        // Guardamos coordenadas de los polígonos
+        poligonos: historialPoligonos.map(p => ({
+            coords: p.objeto.getLatLngs()[0],
+            area: p.area,
+            id: p.id
         }))
     };
     localStorage.setItem('geovision_data', JSON.stringify(datosGeo));
 }
 
-// --- FUNCIÓN PARA CARGAR AL INICIAR ---
-function cargarDesdeLocal() {
-    const guardado = localStorage.getItem('geovision_data');
-    if (!guardado) return;
-
-    const datos = JSON.parse(guardado);
-
-    // Rehidratar Puntos de Interés
-    datos.puntosInteres.forEach(p => {
-        // Aquí llamas a tu lógica existente para crear el marcador
-        // Usando los datos de p.lat y p.lng
-        agregarMarcadorManual(p.lat, p.lng, p.nota);
-    });
-
-    // Nota: Para las líneas/polígonos, deberás iterar datos.mediciones
-    // y llamar a tus funciones de dibujo actuales.
-}
+// Llama a esta función al final de: actualizarListaLineas, actualizarListaPoligonos y actualizarListaPuntos
