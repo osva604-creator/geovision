@@ -94,20 +94,68 @@ inputDrone.onchange = function () {
         const reader = new FileReader();
         reader.onload = function (e) {
             const txt = e.target.result;
-            const mP = txt.match(/GimbalPitchDegree="([^"]+)"/), mY = txt.match(/FlightYawDegree="([^"]+)"/), mA = txt.match(/RelativeAltitude="([^"]+)"/);
+            
+            // --- FUNCIÓN DE BÚSQUEDA AVANZADA ---
+            const buscarDato = (etiquetas) => {
+                for (let etiqueta of etiquetas) {
+                    // Busca etiqueta="valor", etiqueta:valor o <etiqueta>valor
+                    const regex = new RegExp(etiqueta + '[=">:]+([^" <\n\r]+)', 'i');
+                    const match = txt.match(regex);
+                    if (match) {
+                        // Limpieza de caracteres basura
+                        return match[1].replace(/[">]/g, '').trim();
+                    }
+                }
+                return null;
+            };
 
-            if (mP) document.getElementById('gimbal-pitch').value = Math.abs(parseFloat(mP[1])).toFixed(0);
-            if (mY) { let y = parseFloat(mY[1]); document.getElementById('drone-heading').value = (y < 0 ? y + 360 : y).toFixed(0); }
-            if (mA) document.getElementById('manual-alt').value = Math.abs(parseFloat(mA[1])).toFixed(0);
+            // 1. Capturar ÁNGULO DEL GIMBAL (Pitch)
+            const pitchVal = buscarDato(['GimbalPitchDegree', 'drone-dji:GimbalPitchDegree', 'GimbalDegree', 'GimbalPitch']);
+            if (pitchVal) {
+                const p = Math.abs(parseFloat(pitchVal));
+                document.getElementById('gimbal-pitch').value = p.toFixed(0);
+                console.log("🎯 Pitch Detectado:", p);
+            }
 
-            document.getElementById('telemetria-drone').innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(rLat, true)} | ${decimalADMS(rLon, false)}`;
+            // 2. Capturar RUMBO DEL DRONE (Heading / Yaw)
+            const yawVal = buscarDato(['FlightYawDegree', 'drone-dji:FlightYawDegree', 'GimbalYawDegree', 'FlightYaw']);
+            if (yawVal) {
+                let y = parseFloat(yawVal);
+                // Normalizamos a 0-360 si es necesario
+                const heading = (y < 0 ? y + 360 : y).toFixed(0);
+                document.getElementById('drone-heading').value = heading;
+                console.log("🧭 Rumbo Detectado:", heading);
+            }
 
-            if (document.getElementById('btn-clima')) document.getElementById('btn-clima').style.display = 'block';
+            // 3. Capturar ALTITUD RELATIVA (Sobre el punto de despegue)
+            const altVal = buscarDato(['RelativeAltitude', 'drone-dji:RelativeAltitude', 'FlightAltitude', 'Altitude']);
+            if (altVal) {
+                const a = Math.abs(parseFloat(altVal));
+                document.getElementById('manual-alt').value = a.toFixed(0);
+                console.log("⛰️ Altitud Detectada:", a);
+            }
 
-            L.marker([rLat, rLon], { icon: droneIcon }).addTo(map).bindPopup(`<img src="${fotoURL}" width="150">`).openPopup();
+            // --- ACTUALIZACIÓN DE INTERFAZ ---
+            document.getElementById('telemetria-drone').innerHTML = `
+                <strong>Foto:</strong> ${file.name}<br>
+                ${decimalADMS(rLat, true)} | ${decimalADMS(rLon, false)}
+            `;
+
+            // Mostrar botón de clima si existe
+            if (document.getElementById('btn-clima')) {
+                document.getElementById('btn-clima').style.display = 'block';
+            }
+
+            // Colocar marcador en el mapa
+            L.marker([rLat, rLon], { icon: droneIcon }).addTo(map)
+                .bindPopup(`<img src="${fotoURL}" width="150"><br><b>Punto de Captura</b>`)
+                .openPopup();
+            
             map.flyTo([rLat, rLon], 19);
         };
-        reader.readAsText(file.slice(0, 60000));
+        
+        // Leemos 512KB para asegurar que encuentre el bloque XMP en archivos grandes
+        reader.readAsText(file.slice(0, 512000));
     });
 };
 
