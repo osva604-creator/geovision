@@ -1,21 +1,18 @@
 // =========================================================
-// TEST DE LIBRERÍA
-// =========================================================
-window.onload = function () {
-    if (window.L && L.GeometryUtil) {
-        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA Y LISTA");
-    } else {
-        console.error("❌ ERROR: La librería de Geometría NO CARGÓ. Revisar ruta del HTML.");
-        alert("Atención: El cálculo de áreas no funcionará porque la librería no cargó."); // Cargamos lo que haya en local aunque no se puedan calcular áreas, para no perder todo el trabajo previo.
-    }
-};
-
-// 1. VARIABLES GLOBALES Y MAPA
+// 1. INICIALIZACIÓN Y VARIABLES GLOBALES
 // =========================================================
 let ultimasCoordsReales = { lat: 0, lon: 0 };
 let modoMedicion = false, modoPoligono = false, modoMarcadoManual = false;
 let puntosTemp = [], marcadoresTemp = [];
 let historialMediciones = [], historialPoligonos = [], historialPuntos = [];
+
+// UNIFICAMOS EL ONLOAD (Solo uno para no pisar funciones)
+window.onload = function () {
+    if (window.L && L.GeometryUtil) {
+        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA");
+    }
+    cargarDesdeLocal(); // Restauramos tus datos guardados
+};
 
 const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
     maxZoom: 21, subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
@@ -34,13 +31,6 @@ const iconoMira = L.icon({
     iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png',
     iconSize: [40, 40], iconAnchor: [20, 20]
 });
-window.onload = function () {
-    if (window.L && L.GeometryUtil) {
-        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA");
-    }
-    // LANZAMOS LA CARGA DE DATOS GUARDADOS
-    cargarDesdeLocal();
-};
 
 // =========================================================
 // 2. FUNCIONES DE APOYO
@@ -93,69 +83,47 @@ inputDrone.onchange = function () {
 
         const reader = new FileReader();
         reader.onload = function (e) {
-            const txt = e.target.result;
-            
-            // --- FUNCIÓN DE BÚSQUEDA AVANZADA ---
-            const buscarDato = (etiquetas) => {
-                for (let etiqueta of etiquetas) {
-                    // Busca etiqueta="valor", etiqueta:valor o <etiqueta>valor
-                    const regex = new RegExp(etiqueta + '[=">:]+([^" <\n\r]+)', 'i');
-                    const match = txt.match(regex);
-                    if (match) {
-                        // Limpieza de caracteres basura
-                        return match[1].replace(/[">]/g, '').trim();
-                    }
-                }
-                return null;
+            // Convertimos el buffer binario a una cadena de texto de forma segura
+            const buffer = e.target.result;
+            const view = new Uint8Array(buffer);
+            let txt = "";
+            for (let i = 0; i < view.length; i++) {
+                txt += String.fromCharCode(view[i]);
+            }
+
+            // Función de búsqueda ultra-precisa
+            const buscarDJI = (etiqueta) => {
+                const regex = new RegExp(etiqueta + '="([^"]+)"', 'i');
+                const match = txt.match(regex);
+                return match ? match[1] : null;
             };
 
-            // 1. Capturar ÁNGULO DEL GIMBAL (Pitch)
-            const pitchVal = buscarDato(['GimbalPitchDegree', 'drone-dji:GimbalPitchDegree', 'GimbalDegree', 'GimbalPitch']);
-            if (pitchVal) {
-                const p = Math.abs(parseFloat(pitchVal));
-                document.getElementById('gimbal-pitch').value = p.toFixed(0);
-                console.log("🎯 Pitch Detectado:", p);
+            const pitch = buscarDJI('GimbalPitchDegree') || buscarDJI('drone-dji:GimbalPitchDegree');
+            const yaw = buscarDJI('FlightYawDegree') || buscarDJI('drone-dji:FlightYawDegree');
+            const alt = buscarDJI('RelativeAltitude') || buscarDJI('drone-dji:RelativeAltitude');
+
+            if (pitch) {
+                document.getElementById('gimbal-pitch').value = Math.abs(parseFloat(pitch)).toFixed(0);
+                console.log("🎯 Pitch encontrado:", pitch);
+            }
+            if (yaw) {
+                let y = parseFloat(yaw);
+                document.getElementById('drone-heading').value = (y < 0 ? y + 360 : y).toFixed(0);
+            }
+            if (alt) {
+                document.getElementById('manual-alt').value = Math.abs(parseFloat(alt)).toFixed(0);
             }
 
-            // 2. Capturar RUMBO DEL DRONE (Heading / Yaw)
-            const yawVal = buscarDato(['FlightYawDegree', 'drone-dji:FlightYawDegree', 'GimbalYawDegree', 'FlightYaw']);
-            if (yawVal) {
-                let y = parseFloat(yawVal);
-                // Normalizamos a 0-360 si es necesario
-                const heading = (y < 0 ? y + 360 : y).toFixed(0);
-                document.getElementById('drone-heading').value = heading;
-                console.log("🧭 Rumbo Detectado:", heading);
-            }
+            document.getElementById('telemetria-drone').innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(rLat, true)} | ${decimalADMS(rLon, false)}`;
+            if (document.getElementById('btn-clima')) document.getElementById('btn-clima').style.display = 'block';
 
-            // 3. Capturar ALTITUD RELATIVA (Sobre el punto de despegue)
-            const altVal = buscarDato(['RelativeAltitude', 'drone-dji:RelativeAltitude', 'FlightAltitude', 'Altitude']);
-            if (altVal) {
-                const a = Math.abs(parseFloat(altVal));
-                document.getElementById('manual-alt').value = a.toFixed(0);
-                console.log("⛰️ Altitud Detectada:", a);
-            }
-
-            // --- ACTUALIZACIÓN DE INTERFAZ ---
-            document.getElementById('telemetria-drone').innerHTML = `
-                <strong>Foto:</strong> ${file.name}<br>
-                ${decimalADMS(rLat, true)} | ${decimalADMS(rLon, false)}
-            `;
-
-            // Mostrar botón de clima si existe
-            if (document.getElementById('btn-clima')) {
-                document.getElementById('btn-clima').style.display = 'block';
-            }
-
-            // Colocar marcador en el mapa
-            L.marker([rLat, rLon], { icon: droneIcon }).addTo(map)
-                .bindPopup(`<img src="${fotoURL}" width="150"><br><b>Punto de Captura</b>`)
-                .openPopup();
-            
+            L.marker([rLat, rLon], { icon: droneIcon }).addTo(map).bindPopup(`<img src="${fotoURL}" width="150">`).openPopup();
             map.flyTo([rLat, rLon], 19);
         };
-        
-        // Leemos 512KB para asegurar que encuentre el bloque XMP en archivos grandes
-        reader.readAsText(file.slice(0, 512000));
+
+        // LEEMOS COMO ARRAY BUFFER (Datos binarios reales)
+        // Leemos los primeros 300kb del archivo
+        reader.readAsArrayBuffer(file.slice(0, 300000));
     });
 };
 
@@ -163,34 +131,22 @@ inputDrone.onchange = function () {
 if (document.getElementById('btn-clima')) {
     document.getElementById('btn-clima').onclick = async () => {
         if (!ultimasCoordsReales.lat) return;
-
         const apiKey = "ee2057b73b750d1fae6127e3ce2d091d";
         const lat = ultimasCoordsReales.lat;
         const lon = ultimasCoordsReales.lon;
-
         const infoDiv = document.getElementById('info-clima');
         infoDiv.innerText = "Consultando satélite meteorológico...";
-
         try {
             const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=es`);
             const data = await resp.json();
-
-            const temp = data.main.temp;
-            const viento = data.wind.speed * 3.6;
-            const desc = data.weather[0].description;
-            const humedad = data.main.humidity;
-
             infoDiv.innerHTML = `
                 <div style="background: #2c3e50; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; margin-top:10px;">
-                    <span style="text-transform: capitalize; font-weight: bold; color: #3498db;">${desc}</span><br>
-                    🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
-                    💧 <b>Humedad:</b> ${humedad}%<br>
-                    💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
+                    <span style="text-transform: capitalize; font-weight: bold; color: #3498db;">${data.weather[0].description}</span><br>
+                    🌡️ <b>Temp:</b> ${data.main.temp.toFixed(1)}°C<br>
+                    💧 <b>Hum:</b> ${data.main.humidity}% | 💨 <b>Viento:</b> ${(data.wind.speed * 3.6).toFixed(1)} km/h
                 </div>
             `;
-        } catch (err) {
-            infoDiv.innerText = "Error al obtener datos del clima.";
-        }
+        } catch (err) { infoDiv.innerText = "Error al obtener clima."; }
     };
 }
 
@@ -209,81 +165,47 @@ document.getElementById('btn-proyectar').onclick = () => {
     L.polyline([[ultimasCoordsReales.lat, ultimasCoordsReales.lon], [obj.lat, obj.lon]], { color: 'red', dashArray: '5,10' }).addTo(map);
     document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distH.toFixed(1)}m`;
 };
-// --- FUNCIÓN DEL CLIMA PARA UBICACIÓN ACTUAL ---
-document.getElementById('btn-clima-actual').onclick = () => {
-    // Pedimos la ubicación al navegador
-    navigator.geolocation.getCurrentPosition(async (p) => {
-        const lat = p.coords.latitude;
-        const lon = p.coords.longitude;
-        const apiKey = "ee2057b73b750d1fae6127e3ce2d091d";
-        const infoDiv = document.getElementById('info-clima-actual');
 
-        infoDiv.innerText = "Obteniendo clima local...";
-
-        try {
-            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=es`);
-            const data = await resp.json();
-
-            const temp = data.main.temp;
-            const viento = data.wind.speed * 3.6;
-            const desc = data.weather[0].description;
-            const humedad = data.main.humidity;
-
-            infoDiv.innerHTML = `
-                <div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid #2980b9; margin-top:5px;">
-                    <span style="text-transform: capitalize; font-weight: bold; color: #3498db;">${desc}</span><br>
-                    🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
-                    💧 <b>Humedad:</b> ${humedad}%<br>
-                    💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
-                </div>
-            `;
-        } catch (err) {
-            infoDiv.innerText = "Error al conectar con el satélite.";
-        }
-    }, () => {
-        alert("No se pudo obtener tu ubicación actual. Asegurate de tener el GPS activo.");
-    });
-};
+// --- CLIMA UBICACIÓN ACTUAL ---
+if (document.getElementById('btn-clima-actual')) {
+    document.getElementById('btn-clima-actual').onclick = () => {
+        navigator.geolocation.getCurrentPosition(async (p) => {
+            const lat = p.coords.latitude;
+            const lon = p.coords.longitude;
+            const apiKey = "ee2057b73b750d1fae6127e3ce2d091d";
+            const infoDiv = document.getElementById('info-clima-actual');
+            infoDiv.innerText = "Cargando...";
+            try {
+                const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=es`);
+                const data = await resp.json();
+                infoDiv.innerHTML = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid #2980b9;">${data.main.temp.toFixed(1)}°C | ${(data.wind.speed * 3.6).toFixed(1)} km/h</div>`;
+            } catch (e) { infoDiv.innerText = "Error clima."; }
+        });
+    };
+}
 
 // =========================================================
-// 5. HERRAMIENTAS DE DIBUJO
+// 5. HERRAMIENTAS DE DIBUJO Y BORRADO
 // =========================================================
-document.getElementById('btn-regla').onclick = () => {
-    modoMedicion = !modoMedicion; modoPoligono = false; modoMarcadoManual = false;
-    puntosTemp = []; document.getElementById('btn-regla').style.backgroundColor = modoMedicion ? "#e67e22" : "#3498db";
-};
-document.getElementById('btn-poligono').onclick = () => {
-    modoPoligono = !modoPoligono; modoMedicion = false; modoMarcadoManual = false;
-    puntosTemp = []; document.getElementById('btn-poligono').style.backgroundColor = modoPoligono ? "#e67e22" : "#27ae60";
-};
-document.getElementById('btn-modo-punto').onclick = () => {
-    modoMarcadoManual = !modoMarcadoManual; modoMedicion = false; modoPoligono = false;
-    document.getElementById('btn-modo-punto').innerText = modoMarcadoManual ? "📍 Modo Marcador: ACTIVO" : "📍 Modo Marcador: Desactivado";
-};
+document.getElementById('btn-regla').onclick = () => { modoMedicion = !modoMedicion; modoPoligono = false; modoMarcadoManual = false; puntosTemp = []; };
+document.getElementById('btn-poligono').onclick = () => { modoPoligono = !modoPoligono; modoMedicion = false; modoMarcadoManual = false; puntosTemp = []; };
+document.getElementById('btn-modo-punto').onclick = () => { modoMarcadoManual = !modoMarcadoManual; modoMedicion = false; modoPoligono = false; };
+document.getElementById('btn-borrar-todo').onclick = window.borrarTodoElMapa;
 
 map.on('click', e => {
     if (modoMarcadoManual) {
         const id = Date.now();
-        const nombreInicial = `Punto ${historialPuntos.length + 1}`;
         const m = L.marker(e.latlng, { icon: droneIcon, draggable: true }).addTo(map);
-
-        m.bindTooltip(nombreInicial, {
-            permanent: true,
-            direction: 'top',
-            className: 'etiqueta-punto'
-        }).openTooltip();
-
-        historialPuntos.push({ id, m, nombre: nombreInicial, lat: e.latlng.lat, lon: e.latlng.lng });
+        m.bindTooltip("Punto " + (historialPuntos.length + 1), { permanent: true, direction: 'top', className: 'etiqueta-punto' }).openTooltip();
+        historialPuntos.push({ id, m, nombre: "Punto " + (historialPuntos.length + 1) });
         actualizarListaPuntos();
     } else if (modoMedicion) {
         puntosTemp.push(e.latlng);
         L.circleMarker(e.latlng, { radius: 4 }).addTo(map);
         if (puntosTemp.length === 2) {
-            const id = Date.now(), d = puntosTemp[0].distanceTo(puntosTemp[1]);
             const l = L.polyline(puntosTemp, { color: '#3498db', weight: 3 }).addTo(map);
-            historialMediciones.push({ id, linea: l, dist: d, nombre: `Medida ${historialMediciones.length + 1}` });
-            actualizarListaLineas();
-            puntosTemp = []; modoMedicion = false; document.getElementById('btn-regla').style.backgroundColor = "#3498db";
+            historialMediciones.push({ id: Date.now(), linea: l, dist: puntosTemp[0].distanceTo(puntosTemp[1]), nombre: "Medida " + (historialMediciones.length + 1) });
+            actualizarListaLineas(); puntosTemp = []; modoMedicion = false;
         }
     } else if (modoPoligono) {
         puntosTemp.push(e.latlng);
@@ -293,230 +215,89 @@ map.on('click', e => {
 
 map.on('dblclick', () => {
     if (!modoPoligono || puntosTemp.length < 3) return;
-    const id = Date.now();
     const poli = L.polygon(puntosTemp, { color: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
-
-    const vertices = [];
-    puntosTemp.forEach((ll) => {
-        let v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: 'vertice-poligono', iconSize: [10, 10] }) }).addTo(map);
-        v.on('drag', () => {
-            poli.setLatLngs(vertices.map(m => m.getLatLng()));
-            actualizarInfoPoligono(id);
-        });
-        vertices.push(v);
-    });
-
-    historialPoligonos.push({ id, objeto: poli, marcadores: vertices, nombre: `Área ${historialPoligonos.length + 1}`, areaTxt: "" });
-    actualizarInfoPoligono(id);
-    puntosTemp = []; marcadoresTemp = []; modoPoligono = false; document.getElementById('btn-poligono').style.backgroundColor = "#27ae60";
+    historialPoligonos.push({ id: Date.now(), objeto: poli, marcadores: [], nombre: "Área " + (historialPoligonos.length + 1) });
+    actualizarInfoPoligono(historialPoligonos[historialPoligonos.length - 1].id);
+    puntosTemp = []; marcadoresTemp.forEach(m => map.removeLayer(m)); marcadoresTemp = []; modoPoligono = false;
 });
 
 // =========================================================
-// 6. ACTUALIZACIÓN DE LISTAS Y ETIQUETAS
+// 6. GESTIÓN DE DATOS (LOCALSTORAGE)
+// =========================================================
+function guardarEnLocal() {
+    const datos = {
+        puntos: historialPuntos.map(p => ({ lat: p.m.getLatLng().lat, lng: p.m.getLatLng().lng, nombre: p.nombre })),
+        medidas: historialMediciones.map(m => ({ coords: m.linea.getLatLngs(), dist: m.dist, nombre: m.nombre })),
+        poligonos: historialPoligonos.map(p => ({ coords: p.objeto.getLatLngs()[0], nombre: p.nombre }))
+    };
+    localStorage.setItem('geovision_data', JSON.stringify(datos));
+}
+
+function cargarDesdeLocal() {
+    const raw = localStorage.getItem('geovision_data');
+    if (!raw) return;
+    const datos = JSON.parse(raw);
+    datos.puntos?.forEach(p => {
+        const m = L.marker([p.lat, p.lng], { icon: droneIcon }).addTo(map);
+        m.bindTooltip(p.nombre, { permanent: true, className: 'etiqueta-punto' });
+        historialPuntos.push({ id: Date.now() + Math.random(), m, nombre: p.nombre });
+    });
+    actualizarListaPuntos();
+}
+
+// =========================================================
+// 7. ACTUALIZACIÓN DE LISTAS Y BORRADO
 // =========================================================
 function actualizarListaPuntos() {
-    const ui = document.getElementById('lista-puntos'); ui.innerHTML = "";
+    const ui = document.getElementById('lista-puntos'); if (!ui) return; ui.innerHTML = "";
     historialPuntos.forEach(p => {
-        const li = document.createElement('li');
-        li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
-        li.innerHTML = `<input type="text" value="${p.nombre}" onchange="cambiarNombrePunto(${p.id}, this.value)" style="background:none; border:1px solid #555; color:#fff; width:110px; font-size:0.8em;">
-            <button onclick="borrarPunto(${p.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
-        ui.appendChild(li);
-        guardarEnLocal();
+        ui.innerHTML += `<li style="display:flex; justify-content:space-between; padding:5px; border-bottom:1px solid #444;">
+            <span>${p.nombre}</span>
+            <button onclick="borrarPunto(${p.id})" style="color:red; background:none; border:none;">🗑️</button>
+        </li>`;
     });
+    guardarEnLocal();
 }
 
 function actualizarListaLineas() {
-    const ui = document.getElementById('lista-medidas'); ui.innerHTML = "";
+    const ui = document.getElementById('lista-medidas'); if (!ui) return; ui.innerHTML = "";
     historialMediciones.forEach(m => {
-        const txt = m.dist > 1000 ? (m.dist / 1000).toFixed(2) + "km" : m.dist.toFixed(1) + "m";
-        m.linea.bindTooltip(`<b>${m.nombre}</b><br>${txt}`, { permanent: true, direction: 'center' }).openTooltip();
-
-        const li = document.createElement('li');
-        li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
-        li.innerHTML = `<div style="display:flex; flex-direction:column;">
-                <input type="text" value="${m.nombre}" onchange="cambiarNombreLinea(${m.id}, this.value)" style="background:none; border:1px solid #555; color:#3498db; width:100px; font-size:0.8em;">
-                <small style="color:#aaa;">${txt}</small>
-            </div>
-            <button onclick="borrarLinea(${m.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
-        ui.appendChild(li);
-        guardarEnLocal();
+        ui.innerHTML += `<li style="padding:5px; border-bottom:1px solid #444;">${m.nombre}: ${m.dist.toFixed(1)}m</li>`;
     });
+    guardarEnLocal();
+}
+
+function actualizarListaPoligonos() {
+    const ui = document.getElementById('lista-poligonos'); if (!ui) return; ui.innerHTML = "";
+    historialPoligonos.forEach(p => {
+        ui.innerHTML += `<li style="padding:5px; border-bottom:1px solid #444;">${p.nombre}</li>`;
+    });
+    guardarEnLocal();
 }
 
 function actualizarInfoPoligono(id) {
     const p = historialPoligonos.find(x => x.id === id);
-    if (!p) return;
-
-    const ll = p.objeto.getLatLngs()[0];
-    let areaTexto = "Calculando...";
-
-    if (L.GeometryUtil && L.GeometryUtil.geodesicArea) {
-        const a = L.GeometryUtil.geodesicArea(ll);
-        areaTexto = a > 10000 ? (a / 10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
-    }
-
-    p.areaTxt = areaTexto;
-    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${areaTexto}`, {
-        permanent: true,
-        direction: 'center',
-        className: 'etiqueta-area'
-    }).openTooltip();
-
-    actualizarListaPoligonos();
-}
-
-function actualizarListaPoligonos() {
-    const ui = document.getElementById('lista-poligonos');
-    if (!ui) return;
-    ui.innerHTML = "";
-    guardarEnLocal();
-
-    historialPoligonos.forEach(x => {
-        ui.innerHTML += `
-            <li style="border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;">
-                <div style="display:flex; flex-direction:column;">
-                    <input type="text" value="${x.nombre}" onchange="cambiarNombrePoligono(${x.id}, this.value)" 
-                           style="background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;">
-                    <small style="color:#aaa;">${x.areaTxt || "---"}</small>
-                </div>
-                <button onclick="borrarPoligono(${x.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>
-            </li>`;
-    });
-}
-
-// =========================================================
-// 7. FUNCIONES GLOBALES DE BORRADO Y NOMBRES
-// =========================================================
-window.cambiarNombrePunto = (id, n) => {
-    const p = historialPuntos.find(x => x.id === id);
-    if (p) {
-        p.nombre = n;
-        p.m.setTooltipContent(n);
-        p.m.bindPopup(`<b>${n}</b>`);
-    }
-};
-window.cambiarNombreLinea = (id, n) => {
-    const m = historialMediciones.find(x => x.id === id);
-    if (m) { m.nombre = n; actualizarListaLineas(); }
-};
-window.cambiarNombrePoligono = (id, n) => {
-    const x = historialPoligonos.find(p => p.id === id);
-    if (x) { x.nombre = n; actualizarInfoPoligono(id); }
-};
-
-window.borrarLinea = id => {
-    const i = historialMediciones.findIndex(x => x.id === id);
-    if (i !== -1) { map.removeLayer(historialMediciones[i].linea); historialMediciones.splice(i, 1); actualizarListaLineas(); }
-};
-
-window.borrarPoligono = id => {
-    const i = historialPoligonos.findIndex(x => x.id === id);
-    if (i !== -1) {
-        map.removeLayer(historialPoligonos[i].objeto);
-        historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m));
-        historialPoligonos.splice(i, 1);
+    if (p && L.GeometryUtil) {
+        const a = L.GeometryUtil.geodesicArea(p.objeto.getLatLngs()[0]);
+        const txt = a > 10000 ? (a / 10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
+        p.objeto.bindTooltip(`${p.nombre}<br>${txt}`, { permanent: true, direction: 'center' }).openTooltip();
         actualizarListaPoligonos();
     }
-};
+}
 
-window.borrarPunto = id => {
-    const i = historialPuntos.findIndex(x => x.id === id);
+window.borrarPunto = (id) => {
+    const i = historialPuntos.findIndex(p => p.id === id);
     if (i !== -1) { map.removeLayer(historialPuntos[i].m); historialPuntos.splice(i, 1); actualizarListaPuntos(); }
 };
 
 window.borrarTodoElMapa = () => {
-    if (confirm("¿Estás seguro de que querés borrar todas las mediciones y puntos?")) {
-        historialMediciones.forEach(m => map.removeLayer(m.linea));
-        historialMediciones = [];
-        actualizarListaLineas();
-
-        historialPoligonos.forEach(p => {
-            map.removeLayer(p.objeto);
-            p.marcadores.forEach(m => map.removeLayer(m));
-        });
-        historialPoligonos = [];
-        actualizarListaPoligonos();
-
-        historialPuntos.forEach(p => map.removeLayer(p.m));
-        historialPuntos = [];
-        actualizarListaPuntos();
-
-        puntosTemp = [];
-        marcadoresTemp.forEach(m => map.removeLayer(m));
-        marcadoresTemp = [];
-
-        alert("Mapa limpio.");
+    if (confirm("¿Borrar todo?")) {
+        historialMediciones.forEach(m => map.removeLayer(m.linea)); historialMediciones = [];
+        historialPoligonos.forEach(p => { map.removeLayer(p.objeto); p.marcadores.forEach(v => map.removeLayer(v)); }); historialPoligonos = [];
+        historialPuntos.forEach(p => map.removeLayer(p.m)); historialPuntos = [];
+        actualizarListaLineas(); actualizarListaPoligonos(); actualizarListaPuntos();
+        localStorage.removeItem('geovision_data');
     }
 };
 
-// =========================================================
-// 8. CONEXIÓN FINAL DE EVENTOS
-// =========================================================
 document.getElementById('btn-borrar-todo').onclick = window.borrarTodoElMapa;
-// =========================================================
-// 9. FUNCIONES DE GUARDADO EN LOCAL (CORREGIDAS)
-// =========================================================
-function guardarEnLocal() {
-    const datosGeo = {
-        // Guardamos las coordenadas de las líneas y su distancia
-        mediciones: historialMediciones.map(m => ({
-            coords: m.linea.getLatLngs(),
-            distancia: m.distancia
-        })),
-        // Guardamos los puntos de interés
-        puntosInteres: historialPuntos.map(p => ({
-            id: p.id,
-            lat: p.m.getLatLng().lat,
-            lng: p.m.getLatLng().lng,
-            nota: p.nota
-        })),
-        // Guardamos los polígonos
-        poligonos: historialPoligonos.map(p => ({
-            coords: p.objeto.getLatLngs()[0],
-            area: p.area,
-            id: p.id
-        }))
-    };
-    localStorage.setItem('geovision_data', JSON.stringify(datosGeo));
-}
-function cargarDesdeLocal() {
-    const guardado = localStorage.getItem('geovision_data');
-    if (!guardado) return;
-    const datos = JSON.parse(guardado);
-
-    // 1. Re-dibujar Líneas
-    if (datos.mediciones) {
-        datos.mediciones.forEach(m => {
-            const linea = L.polyline(m.coords, { color: '#e74c3c', weight: 3 }).addTo(map);
-            // Restauramos la etiqueta con coordenadas y distancia
-            const latDest = m.coords[1].lat;
-            const lonDest = m.coords[1].lng;
-            linea.bindTooltip(
-                `Distancia: ${m.distancia} m<br>Destino: ${latDest.toFixed(5)}, ${lonDest.toFixed(5)}`, 
-                { permanent: true, direction: "center", className: "etiqueta-punto" }
-            ).openTooltip();
-            historialMediciones.push({ linea: linea, distancia: m.distancia });
-        });
-    }
-
-    // 2. Re-dibujar Puntos
-    if (datos.puntosInteres) {
-        datos.puntosInteres.forEach(p => {
-            agregarMarcadorManual(p.lat, p.lng, p.nota);
-        });
-    }
-
-    // 3. Re-dibujar Polígonos
-    if (datos.poligonos) {
-        datos.poligonos.forEach(p => {
-            const poly = L.polygon(p.coords, { color: '#27ae60', fillColor: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
-            poly.bindTooltip(`Área: ${p.area} m²`, { permanent: true, direction: "center", className: "etiqueta-punto" });
-            historialPoligonos.push({ objeto: poly, area: p.area, id: p.id, marcadores: [] });
-        });
-    }
-    
-    actualizarListaLineas();
-    actualizarListaPuntos();
-    actualizarListaPoligonos();
-}
