@@ -105,10 +105,8 @@ button:hover {
     padding: 0 5px;
     transition: transform 0.2s;
 }
-btn-borrar-medida:hover {
-    background-color: #758088;
-}
 .btn-borrar-medida:hover {
+    background-color: #758088;
     transform: scale(1.2);
     color: #ff5e4d;
 }
