@@ -77,6 +77,49 @@ function actualizarEstadoImportacion(tipo, detalle) {
     estadoDiv.innerHTML = `Estado: <strong>${estilo.label}</strong>${detalle ? `<br><small>${detalle}</small>` : ''}`;
 }
 
+function escaparRegex(texto) {
+    return texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extraerNumeroMetadata(txt, claves) {
+    for (const clave of claves) {
+        const claveEscapada = escaparRegex(clave);
+        const patrones = [
+            new RegExp(`${claveEscapada}\\s*=\\s*["']([+-]?\\d+(?:\\.\\d+)?)["']`, 'i'),
+            new RegExp(`${claveEscapada}>\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*<`, 'i'),
+            new RegExp(`${claveEscapada}[\\s"=:>]+([+-]?\\d+(?:\\.\\d+)?)`, 'i')
+        ];
+
+        for (const patron of patrones) {
+            const m = txt.match(patron);
+            if (m) {
+                console.log("📍 " + clave + " detectado:", m[1]);
+                return parseFloat(m[1]);
+            }
+        }
+    }
+    return null;
+}
+
+/** DJI suele guardar telemetría en XMP como atributos drone-dji:Tag="valor" dentro de rdf:Description */
+function extraerBloqueDJIXMP(txt) {
+    const out = { pitch: null, yaw: null, alt: null };
+    const re = /drone-dji:(GimbalPitchDegree|FlightYawDegree|GimbalYawDegree|RelativeAltitude|AbsoluteAltitude)\s*=\s*["']([+-]?\d+(?:\.\d+)?)["']/gi;
+    let m;
+    while ((m = re.exec(txt)) !== null) {
+        const tag = m[1].toLowerCase();
+        const v = parseFloat(m[2]);
+        if (!Number.isFinite(v)) continue;
+        if (tag === "gimbalpitchdegree") out.pitch = v;
+        else if (tag === "relativealtitude" || tag === "absolutealtitude") {
+            if (out.alt === null || tag === "relativealtitude") out.alt = v;
+        } else if (tag === "flightyawdegree" || tag === "gimbalyawdegree") {
+            if (out.yaw === null) out.yaw = v;
+        }
+    }
+    return out;
+}
+
 function proyectar(lat, lon, dist, rumbo) {
     const R = 6371000, r = (rumbo * Math.PI) / 180, la = (lat * Math.PI) / 180, lo = (lon * Math.PI) / 180, d = dist / R;
     const nLa = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(r));
@@ -128,32 +171,42 @@ window.onload = function () {
                 const reader = new FileReader();
                 reader.onload = function (e) {
                     const buffer = e.target.result;
-                    // Decodificador universal
-                    const decoder = new TextDecoder("utf-8");
+                    // latin1 evita perder etiquetas XMP en JPEG con bytes fuera de UTF-8
+                    const decoder = new TextDecoder("latin1");
                     const txt = decoder.decode(new Uint8Array(buffer));
 
-                    // --- BUSCADOR ATÓMICO MEJORADO ---
-                    const buscar = (prop) => {
-                        // Esta regex busca la propiedad y captura el número ignorando comillas, etiquetas o espacios
-                        const r = new RegExp(prop + '[\\s"=:> ]+([+-]?\\d+\\.?\\d*)', 'i');
-                        const m = txt.match(r);
-                        if (m) {
-                            console.log("📍 " + prop + " detectado:", m[1]);
-                            return m[1];
-                        }
-                        return null;
-                    };
-
-                    const pitchRaw = buscar('GimbalPitchDegree') || buscar('drone-dji:GimbalPitchDegree');
-                    const yawRaw = buscar('FlightYawDegree') || buscar('GimbalYawDegree') || buscar('drone-dji:FlightYawDegree') || buscar('drone-dji:GimbalYawDegree');
-                    const altRaw = buscar('RelativeAltitude') || buscar('AbsoluteAltitude') || buscar('drone-dji:RelativeAltitude') || buscar('drone-dji:AbsoluteAltitude');
-
-                    const pitch = parseFloat(pitchRaw);
-                    const yaw = parseFloat(yawRaw);
-                    const alt = parseFloat(altRaw);
+                    const dji = extraerBloqueDJIXMP(txt);
+                    const pitch =
+                        dji.pitch ??
+                        extraerNumeroMetadata(txt, [
+                            'drone-dji:GimbalPitchDegree',
+                            'GimbalPitchDegree',
+                            'drone:GimbalPitchDegree',
+                            'FlightPitchDegree',
+                            'drone-dji:FlightPitchDegree'
+                        ]);
+                    const yaw =
+                        dji.yaw ??
+                        extraerNumeroMetadata(txt, [
+                            'drone-dji:FlightYawDegree',
+                            'FlightYawDegree',
+                            'drone-dji:GimbalYawDegree',
+                            'GimbalYawDegree',
+                            'drone:GimbalYawDegree'
+                        ]);
+                    const alt =
+                        dji.alt ??
+                        extraerNumeroMetadata(txt, [
+                            'drone-dji:RelativeAltitude',
+                            'RelativeAltitude',
+                            'drone-dji:AbsoluteAltitude',
+                            'AbsoluteAltitude'
+                        ]);
                     const camposDetectados = [pitch, yaw, alt].filter(Number.isFinite).length;
 
-                    if (Number.isFinite(pitch)) document.getElementById('gimbal-pitch').value = Math.abs(pitch).toFixed(0);
+                    if (Number.isFinite(pitch)) {
+                        document.getElementById('gimbal-pitch').value = Math.abs(pitch).toFixed(1);
+                    }
                     if (Number.isFinite(yaw)) {
                         const heading = normalizarGrados(yaw);
                         document.getElementById('drone-heading').value = heading.toFixed(0);
@@ -163,7 +216,7 @@ window.onload = function () {
                     document.getElementById('telemetria-drone').innerHTML = `
                         <strong>Foto:</strong> ${file.name}<br>
                         ${decimalADMS(rLat, true)} | ${decimalADMS(rLon, false)}<br>
-                        <small>Pitch: ${Number.isFinite(pitch) ? Math.abs(pitch).toFixed(1) + "°" : "N/D"} | 
+                        <small>Gimbal pitch: ${Number.isFinite(pitch) ? (pitch >= 0 ? "+" : "") + pitch.toFixed(1) + "°" : "N/D"} | 
                         Yaw: ${Number.isFinite(yaw) ? normalizarGrados(yaw).toFixed(1) + "°" : "N/D"} | 
                         Alt: ${Number.isFinite(alt) ? Math.abs(alt).toFixed(1) + " m" : "N/D"}</small>
                     `;
@@ -180,8 +233,8 @@ window.onload = function () {
                     map.flyTo([rLat, rLon], 19);
                     setTimeout(() => URL.revokeObjectURL(fotoURL), 10000);
                 };
-                // Leemos 1 MB para cubrir todo el encabezado posible
-                reader.readAsArrayBuffer(file.slice(0, 1000000));
+                // Leemos el archivo completo para no perder bloques XMP al final
+                reader.readAsArrayBuffer(file);
             });
         };
     }
