@@ -1,21 +1,13 @@
 // =========================================================
-// TEST DE LIBRERÍA
-// =========================================================
-window.onload = function () {
-    if (window.L && L.GeometryUtil) {
-        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA Y LISTA");
-    } else {
-        console.error("❌ ERROR: La librería de Geometría NO CARGÓ. Revisar ruta del HTML.");
-        alert("Atención: El cálculo de áreas no funcionará porque la librería no cargó."); // Cargamos lo que haya en local aunque no se puedan calcular áreas, para no perder todo el trabajo previo.
-    }
-};
-
 // 1. VARIABLES GLOBALES Y MAPA
 // =========================================================
 let ultimasCoordsReales = { lat: 0, lon: 0 };
 let modoMedicion = false, modoPoligono = false, modoMarcadoManual = false;
 let puntosTemp = [], marcadoresTemp = [];
 let historialMediciones = [], historialPoligonos = [], historialPuntos = [];
+let contadorCalculos = 0; // Para el historial de proyecciones
+
+const WEATHER_API_KEY = "ee2057b73b750d1fae6127e3ce2d091d";
 
 const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
     maxZoom: 21, subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
@@ -34,23 +26,35 @@ const iconoMira = L.icon({
     iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png',
     iconSize: [40, 40], iconAnchor: [20, 20]
 });
-window.onload = function () {
-    if (window.L && L.GeometryUtil) {
-        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA");
-    }
-    // LANZAMOS LA CARGA DE DATOS GUARDADOS
-    cargarDesdeLocal();
-};
 
 // =========================================================
-// 2. FUNCIONES DE APOYO
+// 2. FUNCIONES DE APOYO (LAS 9 FUNCIONES Y MÁS)
 // =========================================================
+
 function decimalADMS(d, esLat) {
     const abs = Math.abs(d);
     const g = Math.floor(abs);
     const m = Math.floor((abs - g) * 60);
     const s = ((abs - g - m / 60) * 3600).toFixed(2);
     return `${g}° ${m}' ${s}" ${esLat ? (d >= 0 ? "N" : "S") : (d >= 0 ? "E" : "W")}`;
+}
+
+function normalizarGrados(grados) {
+    return ((grados % 360) + 360) % 360;
+}
+
+function actualizarEstadoImportacion(tipo, detalle) {
+    const estadoDiv = document.getElementById('estado-importacion');
+    if (!estadoDiv) return;
+    const estilos = {
+        waiting: { bg: '#2c3e50', fg: '#ecf0f1', label: 'Procesando...' },
+        error: { bg: '#5c1f1f', fg: '#f8d7da', label: 'Error' },
+        ok: { bg: '#1f5d3a', fg: '#d4f5e2', label: 'XMP OK' }
+    };
+    const estilo = estilos[tipo] || estilos.waiting;
+    estadoDiv.style.background = estilo.bg;
+    estadoDiv.style.color = estilo.fg;
+    estadoDiv.innerHTML = `Estado: <strong>${estilo.label}</strong>${detalle ? `<br><small>${detalle}</small>` : ''}`;
 }
 
 function proyectar(lat, lon, dist, rumbo) {
@@ -61,255 +65,134 @@ function proyectar(lat, lon, dist, rumbo) {
 }
 
 // =========================================================
-// 3. TELEMETRÍA Y GPS
+// 3. CARGA DE FOTO (ARREGLADO CON EXIFR)
 // =========================================================
-document.getElementById('btn-localizar').onclick = () => {
-    navigator.geolocation.getCurrentPosition(p => {
-        const { latitude: lat, longitude: lon, accuracy: acc } = p.coords;
-        map.flyTo([lat, lon], 18);
-        document.getElementById('info-coords').innerHTML = `<strong>Mi Ubicación:</strong><br>${decimalADMS(lat, true)}<br>${decimalADMS(lon, false)}<br><small>Precisión: +/- ${acc.toFixed(0)}m</small>`;
-        L.circleMarker([lat, lon], { radius: 8, color: '#fff', fillColor: '#0078d4', fillOpacity: 0.8 }).addTo(map);
-    });
-};
 
 const inputDrone = document.getElementById('input-drone');
-document.getElementById('btn-subir-foto').onclick = () => inputDrone.click();
+const btnSubir = document.getElementById('btn-subir-foto');
 
-inputDrone.onchange = function () {
-    const file = this.files[0];
-    if (!file) return;
-    const fotoURL = URL.createObjectURL(file);
+if (btnSubir && inputDrone) {
+    btnSubir.onclick = () => inputDrone.click();
 
-    EXIF.getData(file, function () {
-        let lat = EXIF.getTag(this, "GPSLatitude"), lon = EXIF.getTag(this, "GPSLongitude");
-        if (!lat) return alert("La foto no tiene GPS");
+    inputDrone.onchange = async function () {
+        const file = this.files[0];
+        if (!file) return;
 
-        let rLat = lat[0] + lat[1] / 60 + lat[2] / 3600;
-        let rLon = lon[0] + lon[1] / 60 + lon[2] / 3600;
-        if (EXIF.getTag(this, "GPSLatitudeRef") === "S") rLat = -rLat;
-        if (EXIF.getTag(this, "GPSLongitudeRef") === "W") rLon = -rLon;
-
-        ultimasCoordsReales = { lat: rLat, lon: rLon };
-
-        const reader = new FileReader();
-        reader.onload = function (e) {
-            const txt = e.target.result;
-            
-            // --- FUNCIÓN DE BÚSQUEDA AVANZADA ---
-            const buscarDato = (etiquetas) => {
-                for (let etiqueta of etiquetas) {
-                    // Busca etiqueta="valor", etiqueta:valor o <etiqueta>valor
-                    const regex = new RegExp(etiqueta + '[=">:]+([^" <\n\r]+)', 'i');
-                    const match = txt.match(regex);
-                    if (match) {
-                        // Limpieza de caracteres basura
-                        return match[1].replace(/[">]/g, '').trim();
-                    }
-                }
-                return null;
-            };
-
-            // 1. Capturar ÁNGULO DEL GIMBAL (Pitch)
-            const pitchVal = buscarDato(['GimbalPitchDegree', 'drone-dji:GimbalPitchDegree', 'GimbalDegree', 'GimbalPitch']);
-            if (pitchVal) {
-                const p = Math.abs(parseFloat(pitchVal));
-                document.getElementById('gimbal-pitch').value = p.toFixed(0);
-                console.log("🎯 Pitch Detectado:", p);
-            }
-
-            // 2. Capturar RUMBO DEL DRONE (Heading / Yaw)
-            const yawVal = buscarDato(['FlightYawDegree', 'drone-dji:FlightYawDegree', 'GimbalYawDegree', 'FlightYaw']);
-            if (yawVal) {
-                let y = parseFloat(yawVal);
-                // Normalizamos a 0-360 si es necesario
-                const heading = (y < 0 ? y + 360 : y).toFixed(0);
-                document.getElementById('drone-heading').value = heading;
-                console.log("🧭 Rumbo Detectado:", heading);
-            }
-
-            // 3. Capturar ALTITUD RELATIVA (Sobre el punto de despegue)
-            const altVal = buscarDato(['RelativeAltitude', 'drone-dji:RelativeAltitude', 'FlightAltitude', 'Altitude']);
-            if (altVal) {
-                const a = Math.abs(parseFloat(altVal));
-                document.getElementById('manual-alt').value = a.toFixed(0);
-                console.log("⛰️ Altitud Detectada:", a);
-            }
-
-            // --- ACTUALIZACIÓN DE INTERFAZ ---
-            document.getElementById('telemetria-drone').innerHTML = `
-                <strong>Foto:</strong> ${file.name}<br>
-                ${decimalADMS(rLat, true)} | ${decimalADMS(rLon, false)}
-            `;
-
-            // Mostrar botón de clima si existe
-            if (document.getElementById('btn-clima')) {
-                document.getElementById('btn-clima').style.display = 'block';
-            }
-
-            // Colocar marcador en el mapa
-            L.marker([rLat, rLon], { icon: droneIcon }).addTo(map)
-                .bindPopup(`<img src="${fotoURL}" width="150"><br><b>Punto de Captura</b>`)
-                .openPopup();
-            
-            map.flyTo([rLat, rLon], 19);
-        };
-        
-        // Leemos 512KB para asegurar que encuentre el bloque XMP en archivos grandes
-        reader.readAsText(file.slice(0, 512000));
-    });
-};
-
-// --- FUNCIÓN DEL CLIMA ---
-if (document.getElementById('btn-clima')) {
-    document.getElementById('btn-clima').onclick = async () => {
-        if (!ultimasCoordsReales.lat) return;
-
-        const apiKey = "ee2057b73b750d1fae6127e3ce2d091d";
-        const lat = ultimasCoordsReales.lat;
-        const lon = ultimasCoordsReales.lon;
-
-        const infoDiv = document.getElementById('info-clima');
-        infoDiv.innerText = "Consultando satélite meteorológico...";
+        actualizarEstadoImportacion('waiting', `Analizando ${file.name}...`);
 
         try {
-            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=es`);
-            const data = await resp.json();
+            // Usamos exifr para leer los metadatos XMP de DJI
+            const data = await exifr.parse(file, {
+                gps: true,
+                xmp: true,
+                multiSegment: true
+            });
 
-            const temp = data.main.temp;
-            const viento = data.wind.speed * 3.6;
-            const desc = data.weather[0].description;
-            const humedad = data.main.humidity;
+            if (!data || !data.latitude) {
+                throw new Error("La foto no tiene GPS");
+            }
 
-            infoDiv.innerHTML = `
-                <div style="background: #2c3e50; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; margin-top:10px;">
-                    <span style="text-transform: capitalize; font-weight: bold; color: #3498db;">${desc}</span><br>
-                    🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
-                    💧 <b>Humedad:</b> ${humedad}%<br>
-                    💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
-                </div>
+            ultimasCoordsReales = { lat: data.latitude, lon: data.longitude };
+
+            // Extraer Telemetría
+            const pitch = data.GimbalPitchDegree || data.FlightPitchDegree || 0;
+            const yaw = data.FlightYawDegree || data.GimbalYawDegree || 0;
+            const alt = data.RelativeAltitude || data.AbsoluteAltitude || 0;
+
+            // Actualizar Interfaz
+            document.getElementById('gimbal-pitch').value = Math.abs(pitch).toFixed(1);
+            document.getElementById('drone-heading').value = normalizarGrados(yaw).toFixed(0);
+            document.getElementById('manual-alt').value = Math.abs(alt).toFixed(0);
+
+            document.getElementById('telemetria-drone').innerHTML = `
+                <strong>Foto:</strong> ${file.name}<br>
+                ${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}
             `;
+
+            const fotoURL = URL.createObjectURL(file);
+            L.marker([data.latitude, data.longitude], { icon: droneIcon })
+                .addTo(map)
+                .bindPopup(`<img src="${fotoURL}" width="150">`)
+                .openPopup();
+
+            map.flyTo([data.latitude, data.longitude], 19);
+            actualizarEstadoImportacion('ok', 'Telemetría cargada');
+
         } catch (err) {
-            infoDiv.innerText = "Error al obtener datos del clima.";
+            actualizarEstadoImportacion('error', err.message);
+            alert("Error: " + err.message);
         }
     };
 }
 
 // =========================================================
-// 4. CALCULADOR DE MIRA
+// 4. CÁLCULO DE OBJETIVO E HISTORIAL (NUEVO)
 // =========================================================
+
 document.getElementById('btn-proyectar').onclick = () => {
     if (ultimasCoordsReales.lat === 0) return alert("Sube una foto primero");
+
     const alt = parseFloat(document.getElementById('manual-alt').value);
-    const pitch = Math.abs(parseFloat(document.getElementById('gimbal-pitch').value));
+    const pitchAbs = Math.abs(parseFloat(document.getElementById('gimbal-pitch').value));
     const head = parseFloat(document.getElementById('drone-heading').value);
-    const distH = alt * Math.tan(((90 - pitch) * Math.PI) / 180);
+
+    // Trigonometría para distancia horizontal
+    let distH = 0;
+    if (pitchAbs < 89.5) {
+        const anguloRadianes = (Math.abs(90 - pitchAbs) * Math.PI) / 180;
+        distH = alt * Math.tan(anguloRadianes);
+    }
+
     const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, head);
 
-    L.marker([obj.lat, obj.lon], { icon: iconoMira }).addTo(map).bindPopup(`<b>Objetivo</b><br>${distH.toFixed(1)}m`).openPopup();
-    L.polyline([[ultimasCoordsReales.lat, ultimasCoordsReales.lon], [obj.lat, obj.lon]], { color: 'red', dashArray: '5,10' }).addTo(map);
-    document.getElementById('resultado-mira').innerHTML = `🎯 Objetivo a ${distH.toFixed(1)}m`;
+    // Formato DMS
+    const latDMS = decimalADMS(obj.lat, true);
+    const lonDMS = decimalADMS(obj.lon, false);
+
+    // Marcador en Mapa
+    L.marker([obj.lat, obj.lon], { icon: iconoMira })
+        .addTo(map)
+        .bindPopup(`<strong>🎯 OBJETIVO</strong><br>${latDMS}<br>${lonDMS}`)
+        .openPopup();
+
+    // Agregar al Historial del Sidebar
+    contadorCalculos++;
+    const lista = document.getElementById('lista-puntos'); 
+    const nuevoItem = document.createElement('li');
+    nuevoItem.style = "background: #2c3e50; margin-bottom: 8px; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; list-style:none; color:white;";
+    nuevoItem.innerHTML = `
+        <div style="font-weight:bold; color:#3498db; margin-bottom:3px;">Cálculo #${contadorCalculos}</div>
+        <div style="font-size:0.85em;">📍 ${latDMS}</div>
+        <div style="font-size:0.85em;">📍 ${lonDMS}</div>
+        <div style="font-size:0.8em; color:#bdc3c7; margin-top:3px;">📏 Dist: ${distH.toFixed(1)}m | 🧭 Rumbo: ${head}°</div>
+    `;
+    
+    lista.insertBefore(nuevoItem, lista.firstChild);
+    map.flyTo([obj.lat, obj.lon], 19);
 };
-// --- FUNCIÓN DEL CLIMA PARA UBICACIÓN ACTUAL ---
-document.getElementById('btn-clima-actual').onclick = () => {
-    // Pedimos la ubicación al navegador
+
+// =========================================================
+// 5. LOCALIZACIÓN Y CLIMA
+// =========================================================
+
+document.getElementById('btn-localizar').onclick = () => {
+    navigator.geolocation.getCurrentPosition(p => {
+        const { latitude: lat, longitude: lon } = p.coords;
+        map.flyTo([lat, lon], 18);
+        L.circleMarker([lat, lon], { radius: 8, color: '#fff', fillColor: '#0078d4', fillOpacity: 0.8 }).addTo(map);
+    });
+};
+
+document.getElementById('btn-clima-actual').onclick = async () => {
     navigator.geolocation.getCurrentPosition(async (p) => {
-        const lat = p.coords.latitude;
-        const lon = p.coords.longitude;
-        const apiKey = "ee2057b73b750d1fae6127e3ce2d091d";
         const infoDiv = document.getElementById('info-clima-actual');
-
-        infoDiv.innerText = "Obteniendo clima local...";
-
         try {
-            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=es`);
+            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${p.coords.latitude}&lon=${p.coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
             const data = await resp.json();
-
-            const temp = data.main.temp;
-            const viento = data.wind.speed * 3.6;
-            const desc = data.weather[0].description;
-            const humedad = data.main.humidity;
-
-            infoDiv.innerHTML = `
-                <div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid #2980b9; margin-top:5px;">
-                    <span style="text-transform: capitalize; font-weight: bold; color: #3498db;">${desc}</span><br>
-                    🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
-                    💧 <b>Humedad:</b> ${humedad}%<br>
-                    💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
-                </div>
-            `;
-        } catch (err) {
-            infoDiv.innerText = "Error al conectar con el satélite.";
-        }
-    }, () => {
-        alert("No se pudo obtener tu ubicación actual. Asegurate de tener el GPS activo.");
+            infoDiv.innerHTML = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid #2980b9; margin-top:5px;">🌡️ ${data.main.temp.toFixed(1)}°C | 💨 ${(data.wind.speed * 3.6).toFixed(1)} km/h</div>`;
+        } catch (e) { infoDiv.innerText = "Error clima."; }
     });
 };
-
-// =========================================================
-// 5. HERRAMIENTAS DE DIBUJO
-// =========================================================
-document.getElementById('btn-regla').onclick = () => {
-    modoMedicion = !modoMedicion; modoPoligono = false; modoMarcadoManual = false;
-    puntosTemp = []; document.getElementById('btn-regla').style.backgroundColor = modoMedicion ? "#e67e22" : "#3498db";
-};
-document.getElementById('btn-poligono').onclick = () => {
-    modoPoligono = !modoPoligono; modoMedicion = false; modoMarcadoManual = false;
-    puntosTemp = []; document.getElementById('btn-poligono').style.backgroundColor = modoPoligono ? "#e67e22" : "#27ae60";
-};
-document.getElementById('btn-modo-punto').onclick = () => {
-    modoMarcadoManual = !modoMarcadoManual; modoMedicion = false; modoPoligono = false;
-    document.getElementById('btn-modo-punto').innerText = modoMarcadoManual ? "📍 Modo Marcador: ACTIVO" : "📍 Modo Marcador: Desactivado";
-};
-
-map.on('click', e => {
-    if (modoMarcadoManual) {
-        const id = Date.now();
-        const nombreInicial = `Punto ${historialPuntos.length + 1}`;
-        const m = L.marker(e.latlng, { icon: droneIcon, draggable: true }).addTo(map);
-
-        m.bindTooltip(nombreInicial, {
-            permanent: true,
-            direction: 'top',
-            className: 'etiqueta-punto'
-        }).openTooltip();
-
-        historialPuntos.push({ id, m, nombre: nombreInicial, lat: e.latlng.lat, lon: e.latlng.lng });
-        actualizarListaPuntos();
-    } else if (modoMedicion) {
-        puntosTemp.push(e.latlng);
-        L.circleMarker(e.latlng, { radius: 4 }).addTo(map);
-        if (puntosTemp.length === 2) {
-            const id = Date.now(), d = puntosTemp[0].distanceTo(puntosTemp[1]);
-            const l = L.polyline(puntosTemp, { color: '#3498db', weight: 3 }).addTo(map);
-            historialMediciones.push({ id, linea: l, dist: d, nombre: `Medida ${historialMediciones.length + 1}` });
-            actualizarListaLineas();
-            puntosTemp = []; modoMedicion = false; document.getElementById('btn-regla').style.backgroundColor = "#3498db";
-        }
-    } else if (modoPoligono) {
-        puntosTemp.push(e.latlng);
-        marcadoresTemp.push(L.circleMarker(e.latlng, { radius: 4, color: '#2ecc71' }).addTo(map));
-    }
-});
-
-map.on('dblclick', () => {
-    if (!modoPoligono || puntosTemp.length < 3) return;
-    const id = Date.now();
-    const poli = L.polygon(puntosTemp, { color: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
-
-    const vertices = [];
-    puntosTemp.forEach((ll) => {
-        let v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: 'vertice-poligono', iconSize: [10, 10] }) }).addTo(map);
-        v.on('drag', () => {
-            poli.setLatLngs(vertices.map(m => m.getLatLng()));
-            actualizarInfoPoligono(id);
-        });
-        vertices.push(v);
-    });
-
-    historialPoligonos.push({ id, objeto: poli, marcadores: vertices, nombre: `Área ${historialPoligonos.length + 1}`, areaTxt: "" });
-    actualizarInfoPoligono(id);
-    puntosTemp = []; marcadoresTemp = []; modoPoligono = false; document.getElementById('btn-poligono').style.backgroundColor = "#27ae60";
-});
 
 // =========================================================
 // 6. ACTUALIZACIÓN DE LISTAS Y ETIQUETAS
