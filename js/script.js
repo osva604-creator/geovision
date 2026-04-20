@@ -27,6 +27,13 @@ const iconoMira = L.icon({
     iconSize: [40, 40], iconAnchor: [20, 20]
 });
 
+window.onload = function () {
+    if (window.L && L.GeometryUtil) {
+        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA");
+    }
+    // LANZAMOS LA CARGA DE DATOS GUARDADOS
+    cargarDesdeLocal();
+};
 // =========================================================
 // 2. FUNCIONES DE APOYO (LAS 9 FUNCIONES Y MÁS)
 // =========================================================
@@ -157,7 +164,7 @@ document.getElementById('btn-proyectar').onclick = () => {
 
     // Agregar al Historial del Sidebar
     contadorCalculos++;
-    const lista = document.getElementById('lista-puntos'); 
+    const lista = document.getElementById('lista-puntos');
     const nuevoItem = document.createElement('li');
     nuevoItem.style = "background: #2c3e50; margin-bottom: 8px; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; list-style:none; color:white;";
     nuevoItem.innerHTML = `
@@ -166,7 +173,7 @@ document.getElementById('btn-proyectar').onclick = () => {
         <div style="font-size:0.85em;">📍 ${lonDMS}</div>
         <div style="font-size:0.8em; color:#bdc3c7; margin-top:3px;">📏 Dist: ${distH.toFixed(1)}m | 🧭 Rumbo: ${head}°</div>
     `;
-    
+
     lista.insertBefore(nuevoItem, lista.firstChild);
     map.flyTo([obj.lat, obj.lon], 19);
 };
@@ -376,7 +383,7 @@ function cargarDesdeLocal() {
             const latDest = m.coords[1].lat;
             const lonDest = m.coords[1].lng;
             linea.bindTooltip(
-                `Distancia: ${m.distancia} m<br>Destino: ${latDest.toFixed(5)}, ${lonDest.toFixed(5)}`, 
+                `Distancia: ${m.distancia} m<br>Destino: ${latDest.toFixed(5)}, ${lonDest.toFixed(5)}`,
                 { permanent: true, direction: "center", className: "etiqueta-punto" }
             ).openTooltip();
             historialMediciones.push({ linea: linea, distancia: m.distancia });
@@ -398,7 +405,7 @@ function cargarDesdeLocal() {
             historialPoligonos.push({ objeto: poly, area: p.area, id: p.id, marcadores: [] });
         });
     }
-    
+
     actualizarListaLineas();
     actualizarListaPuntos();
     actualizarListaPoligonos();
