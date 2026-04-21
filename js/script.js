@@ -151,52 +151,77 @@ if (btnSubir && inputDrone) {
 // =========================================================
 
 document.getElementById('btn-proyectar').onclick = () => {
-    if (ultimasCoordsReales.lat === 0) return alert("Sube una foto primero");
-
-    const alt = parseFloat(document.getElementById('manual-alt').value);
-    const pitchAbs = Math.abs(parseFloat(document.getElementById('gimbal-pitch').value));
-    const head = parseFloat(document.getElementById('drone-heading').value);
-
-    // Trigonometría para distancia horizontal
-    let distH = 0;
-    if (pitchAbs < 89.5) {
-        const anguloRadianes = (Math.abs(90 - pitchAbs) * Math.PI) / 180;
-        distH = alt * Math.tan(anguloRadianes);
+    // 1. Verificamos que tengamos posición del drone
+    if (!ultimasCoordsReales || ultimasCoordsReales.lat === 0) {
+        return alert("Primero debes subir una foto del drone.");
     }
 
+    // 2. Capturamos los datos de los inputs
+    const alt = parseFloat(document.getElementById('manual-alt').value);
+    const pitchOriginal = parseFloat(document.getElementById('gimbal-pitch').value);
+    const head = parseFloat(document.getElementById('drone-heading').value);
+
+    // 3. Validación de números
+    if (isNaN(alt) || isNaN(pitchOriginal) || isNaN(head)) {
+        return alert("Por favor, completa Altitud, Pitch y Heading con números.");
+    }
+
+    // --- TRIGONOMETRÍA PARA DISTANCIA HORIZONTAL ---
+    const pitchAbs = Math.abs(pitchOriginal);
+    let distH = 0;
+    
+    // Si el gimbal no está mirando totalmente hacia abajo (90°)
+    if (pitchAbs < 89.5) {
+        // El ángulo que nos interesa es el que forma con la vertical (90 - pitch)
+        const anguloVerticalRad = ((90 - pitchAbs) * Math.PI) / 180;
+        distH = alt * Math.tan(anguloVerticalRad);
+    }
+    // -----------------------------------------------
+
+    // 4. Calculamos las coordenadas del objetivo (Punto en el suelo)
     const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, head);
 
-    // Formato DMS
+    // 5. Dibujamos el Marcador del Objetivo
     const latDMS = decimalADMS(obj.lat, true);
     const lonDMS = decimalADMS(obj.lon, false);
 
-    // Marcador en Mapa
     L.marker([obj.lat, obj.lon], { icon: iconoMira })
         .addTo(map)
-        .bindPopup(`<strong>🎯 OBJETIVO</strong><br>${latDMS}<br>${lonDMS}`)
+        .bindPopup(`
+            <div style="text-align:center;">
+                <strong style="color:#2980b9;">🎯 OBJETIVO CALCULADO</strong><br>
+                <small>${latDMS}<br>${lonDMS}</small><br>
+                <hr style="margin:5px 0;">
+                <span>Distancia: <strong>${distH.toFixed(1)} m</strong></span>
+            </div>
+        `)
         .openPopup();
 
-    // Agregar al Historial del Sidebar
-    contadorCalculos++;
-    const lista = document.getElementById('lista-puntos');
-    const nuevoItem = document.createElement('li');
-    nuevoItem.style = "background: #2c3e50; margin-bottom: 8px; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; list-style:none; color:white;";
-    nuevoItem.innerHTML = `
-        <div style="font-weight:bold; color:#3498db; margin-bottom:3px;">Cálculo #${contadorCalculos}</div>
-        <div style="font-size:0.85em;">📍 ${latDMS}</div>
-        <div style="font-size:0.85em;">📍 ${lonDMS}</div>
-        <div style="font-size:0.8em; color:#bdc3c7; margin-top:3px;">📏 Dist: ${distH.toFixed(1)}m | 🧭 Rumbo: ${head}°</div>
-    `;
+    // 6. Dibujamos la LÍNEA PUNTEADA (Trayectoria)
+    const puntosLinea = [
+        [ultimasCoordsReales.lat, ultimasCoordsReales.lon], 
+        [obj.lat, obj.lon]                                
+    ];
 
-    lista.insertBefore(nuevoItem, lista.firstChild);
+    L.polyline(puntosLinea, {
+        color: '#db4a34',      
+        weight: 5,             
+        dashArray: '5, 10',    
+        opacity: 1
+    }).addTo(map);
+
+    // 7. Centramos el mapa en el objetivo
     map.flyTo([obj.lat, obj.lon], 19);
+
+    // 8. Actualizamos el historial si la función existe
+    if (typeof agregarAHistorial === "function") {
+        agregarAHistorial(obj.lat, obj.lon, distH, head);
+    }
 };
 
 // =========================================================
 // 5. LOCALIZACIÓN Y CLIMA
 // =========================================================
-
-// --- COPIAR DESDE AQUÍ ---
 function localizarUsuario() {
     const infoDiv = document.getElementById('info-coords');
 
