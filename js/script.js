@@ -26,14 +26,23 @@ const iconoMira = L.icon({
     iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png',
     iconSize: [40, 40], iconAnchor: [20, 20]
 });
+// 1. LA FUNCIÓN DE CARGA (Libre, afuera de todo)
+function cargarDesdeLocal() {
+    const guardado = localStorage.getItem('geovision_data');
+    if (!guardado) return;
+    const datos = JSON.parse(guardado);
+    // ... resto de tu lógica de carga ...
+    console.log("✅ Datos cargados");
+}
 
+// 2. EL DISPARADOR (Solo llama a la función cuando la página está lista)
 window.onload = function () {
     if (window.L && L.GeometryUtil) {
         console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA");
     }
-    // LANZAMOS LA CARGA DE DATOS GUARDADOS
-    cargarDesdeLocal();
+    cargarDesdeLocal(); // <-- ASEGÚRATE QUE NO TENGA LA "L" EXTRA
 };
+
 // =========================================================
 // 2. FUNCIONES DE APOYO (LAS 9 FUNCIONES Y MÁS)
 // =========================================================
@@ -169,7 +178,7 @@ document.getElementById('btn-proyectar').onclick = () => {
     // --- TRIGONOMETRÍA PARA DISTANCIA HORIZONTAL ---
     const pitchAbs = Math.abs(pitchOriginal);
     let distH = 0;
-    
+
     // Si el gimbal no está mirando totalmente hacia abajo (90°)
     if (pitchAbs < 89.5) {
         // El ángulo que nos interesa es el que forma con la vertical (90 - pitch)
@@ -199,14 +208,14 @@ document.getElementById('btn-proyectar').onclick = () => {
 
     // 6. Dibujamos la LÍNEA PUNTEADA (Trayectoria)
     const puntosLinea = [
-        [ultimasCoordsReales.lat, ultimasCoordsReales.lon], 
-        [obj.lat, obj.lon]                                
+        [ultimasCoordsReales.lat, ultimasCoordsReales.lon],
+        [obj.lat, obj.lon]
     ];
 
     L.polyline(puntosLinea, {
-        color: '#db4a34',      
-        weight: 5,             
-        dashArray: '5, 10',    
+        color: '#db4a34',
+        weight: 5,
+        dashArray: '5, 10',
         opacity: 1
     }).addTo(map);
 
@@ -272,7 +281,6 @@ function localizarUsuario() {
 
 // Vinculamos la función al botón
 document.getElementById('btn-localizar').onclick = localizarUsuario;
-// --- HASTA AQUÍ ---
 
 document.getElementById('btn-clima-actual').onclick = async () => {
     navigator.geolocation.getCurrentPosition(async (p) => {
@@ -283,10 +291,59 @@ document.getElementById('btn-clima-actual').onclick = async () => {
             infoDiv.innerHTML = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid #2980b9; margin-top:5px;">🌡️ ${data.main.temp.toFixed(1)}°C | 💨 ${(data.wind.speed * 3.6).toFixed(1)} km/h</div>`;
         } catch (e) { infoDiv.innerText = "Error clima."; }
     });
-};
+    // 6. MEDICIÓN DE DISTANCIA Y ÁREA
+    // =========================================================
+    // =========================================================
+    // 6. MEDICIÓN DE DISTANCIA Y ÁREA
+    // =========================================================
+
+    // 1. PRIMERO PEGAS EL MOTOR DE CLICS (Lo que te falta)
+    map.on('click', (e) => {
+        if (modoMedicion) {
+            puntosTemp.push(e.latlng);
+            L.circleMarker(e.latlng, { radius: 3, color: 'red' }).addTo(map);
+            if (puntosTemp.length === 2) {
+                const dist = map.distance(puntosTemp[0], puntosTemp[1]);
+                const linea = L.polyline(puntosTemp, { color: 'red' }).addTo(map);
+                linea.bindTooltip(`${dist.toFixed(1)}m`, { permanent: true }).openTooltip();
+
+                // Guardamos para el historial
+                historialMediciones.push({
+                    id: Date.now(),
+                    linea: linea,
+                    distancia: dist.toFixed(1),
+                    nombre: "Medida"
+                });
+
+                puntosTemp = [];
+                modoMedicion = false;
+                if (typeof guardarEnLocal === 'function') guardarEnLocal();
+            }
+        }
+        if (modoPoligono) {
+            puntosTemp.push(e.latlng);
+            L.circleMarker(e.latlng, { radius: 3, color: 'green' }).addTo(map);
+        }
+    });
+
+    // 2. LUEGO SIGUEN TUS BOTONES (Lo que ya tienes en la foto)
+    document.getElementById('btn-modo-medicion').onclick = () => {
+        modoMedicion = !modoMedicion;
+        modoPoligono = false;
+        puntosTemp = [];
+        console.log("Modo medición:", modoMedicion);
+    };
+
+    document.getElementById('btn-modo-poligono').onclick = () => {
+        modoPoligono = !modoPoligono;
+        modoMedicion = false;
+        puntosTemp = [];
+        console.log("Modo polígono:", modoPoligono);
+    };
+}
 
 // =========================================================
-// 6. ACTUALIZACIÓN DE LISTAS Y ETIQUETAS
+// 7. ACTUALIZACIÓN DE LISTAS Y ETIQUETAS
 // =========================================================
 function actualizarListaPuntos() {
     const ui = document.getElementById('lista-puntos'); ui.innerHTML = "";
@@ -360,7 +417,7 @@ function actualizarListaPoligonos() {
 }
 
 // =========================================================
-// 7. FUNCIONES GLOBALES DE BORRADO Y NOMBRES
+// 8. FUNCIONES GLOBALES DE BORRADO Y NOMBRES
 // =========================================================
 window.cambiarNombrePunto = (id, n) => {
     const p = historialPuntos.find(x => x.id === id);
@@ -425,11 +482,11 @@ window.borrarTodoElMapa = () => {
 };
 
 // =========================================================
-// 8. CONEXIÓN FINAL DE EVENTOS
+// 9 CONEXIÓN FINAL DE EVENTOS
 // =========================================================
 document.getElementById('btn-borrar-todo').onclick = window.borrarTodoElMapa;
 // =========================================================
-// 9. FUNCIONES DE GUARDADO EN LOCAL (CORREGIDAS)
+// 10 FUNCIONES DE GUARDADO EN LOCAL (CORREGIDAS)
 // =========================================================
 function guardarEnLocal() {
     const datosGeo = {
@@ -453,45 +510,66 @@ function guardarEnLocal() {
         }))
     };
     localStorage.setItem('geovision_data', JSON.stringify(datosGeo));
+
+    function cargarDesdeLocal() {
+        const guardado = localStorage.getItem('geovision_data');
+        if (!guardado) return;
+        const datos = JSON.parse(guardado);
+
+        // 1. Re-dibujar Líneas
+        if (datos.mediciones) {
+            datos.mediciones.forEach(m => {
+                const linea = L.polyline(m.coords, { color: '#e74c3c', weight: 3 }).addTo(map);
+                // Restauramos la etiqueta con coordenadas y distancia
+                const latDest = m.coords[1].lat;
+                const lonDest = m.coords[1].lng;
+                linea.bindTooltip(
+                    `Distancia: ${m.distancia} m<br>Destino: ${latDest.toFixed(5)}, ${lonDest.toFixed(5)}`,
+                    { permanent: true, direction: "center", className: "etiqueta-punto" }
+                ).openTooltip();
+                historialMediciones.push({ linea: linea, distancia: m.distancia });
+            });
+        }
+
+        // 2. Re-dibujar Puntos
+        if (datos.puntosInteres) {
+            datos.puntosInteres.forEach(p => {
+                agregarMarcadorManual(p.lat, p.lng, p.nota);
+            });
+        }
+
+        // 3. Re-dibujar Polígonos
+        if (datos.poligonos) {
+            datos.poligonos.forEach(p => {
+                const poly = L.polygon(p.coords, { color: '#27ae60', fillColor: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
+                poly.bindTooltip(`Área: ${p.area} m²`, { permanent: true, direction: "center", className: "etiqueta-punto" });
+                historialPoligonos.push({ objeto: poly, area: p.area, id: p.id, marcadores: [] });
+            });
+        }
+
+        actualizarListaLineas();
+        actualizarListaPuntos();
+        actualizarListaPoligonos();
+        console.log("Datos cargados desde localStorage.");
+    }
 }
-function cargarDesdeLocal() {
-    const guardado = localStorage.getItem('geovision_data');
-    if (!guardado) return;
-    const datos = JSON.parse(guardado);
-
-    // 1. Re-dibujar Líneas
-    if (datos.mediciones) {
-        datos.mediciones.forEach(m => {
-            const linea = L.polyline(m.coords, { color: '#e74c3c', weight: 3 }).addTo(map);
-            // Restauramos la etiqueta con coordenadas y distancia
-            const latDest = m.coords[1].lat;
-            const lonDest = m.coords[1].lng;
-            linea.bindTooltip(
-                `Distancia: ${m.distancia} m<br>Destino: ${latDest.toFixed(5)}, ${lonDest.toFixed(5)}`,
-                { permanent: true, direction: "center", className: "etiqueta-punto" }
-            ).openTooltip();
-            historialMediciones.push({ linea: linea, distancia: m.distancia });
-        });
-    }
-
-    // 2. Re-dibujar Puntos
-    if (datos.puntosInteres) {
-        datos.puntosInteres.forEach(p => {
-            agregarMarcadorManual(p.lat, p.lng, p.nota);
-        });
-    }
-
-    // 3. Re-dibujar Polígonos
-    if (datos.poligonos) {
-        datos.poligonos.forEach(p => {
-            const poly = L.polygon(p.coords, { color: '#27ae60', fillColor: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
-            poly.bindTooltip(`Área: ${p.area} m²`, { permanent: true, direction: "center", className: "etiqueta-punto" });
-            historialPoligonos.push({ objeto: poly, area: p.area, id: p.id, marcadores: [] });
-        });
-    }
-
-    actualizarListaLineas();
-    actualizarListaPuntos();
-    actualizarListaPoligonos();
-
+// =========================================================
+// 10. FUNCIÓN DE GUARDADO (LA QUE FALTA)
+// =========================================================
+function guardarEnLocal() {
+    const datosGeo = {
+        mediciones: historialMediciones.map(m => ({
+            coords: m.linea.getLatLngs(),
+            distancia: m.distancia
+        })),
+        puntosInteres: historialPuntos.map(p => ({
+            lat: p.m.getLatLng().lat,
+            lng: p.m.getLatLng().lng,
+            nota: p.nota
+        }))
+    };
+    
+    // Convertimos el objeto a texto y lo guardamos en el navegador
+    localStorage.setItem('geovision_data', JSON.stringify(datosGeo));
+    console.log("💾 Datos guardados en el navegador.");
 }
