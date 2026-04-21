@@ -27,12 +27,14 @@ main {
 }
 
 #map-container {
+    display: flex;
     flex: 3;
     background-color: #242424;
     position: relative;
 }
 
 #map {
+    display: flex;
     height: 100%;
     width: 100%;
 }
@@ -197,4 +199,26 @@ button:hover {
 /* Para que el cambio de color sea suave y no de golpe */
 button {
     transition: all 0.3s ease; /* Hace que el efecto dure 0.3 segundos */
+}
+/* Hacer que el globo del Pop-up sea oscuro como el panel */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+    background: #2d2d2d !important;
+    color: white !important;
+    border: 1px solid #444;
+    box-shadow: 0 3px 14px rgba(0,0,0,0.4);
+}
+
+/* Ajustar el botón de cerrar del pop-up */
+.leaflet-popup-close-button {
+    color: #fff !important;
+    padding: 8px !important;
+}
+
+.leaflet-popup-content {
+    margin: 15px;
+    line-height: 1.4;
+}
+.popup-drone-grande .leaflet-popup-content {
+    width: 350px !important; 
+    margin: 15px !important;
 }

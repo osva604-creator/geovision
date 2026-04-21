@@ -72,9 +72,8 @@ function proyectar(lat, lon, dist, rumbo) {
 }
 
 // =========================================================
-// 3. CARGA DE FOTO (ARREGLADO CON EXIFR)
+// 3 CARGA DE FOTO Y TELEMETRÍA (VERSION CORREGIDA)
 // =========================================================
-
 const inputDrone = document.getElementById('input-drone');
 const btnSubir = document.getElementById('btn-subir-foto');
 
@@ -96,17 +95,19 @@ if (btnSubir && inputDrone) {
             });
 
             if (!data || !data.latitude) {
-                throw new Error("La foto no tiene GPS");
+                throw new Error("La foto no tiene coordenadas GPS.");
             }
 
+            // 1. Guardar coordenadas para cálculos posteriores
             ultimasCoordsReales = { lat: data.latitude, lon: data.longitude };
+            const fotoURL = URL.createObjectURL(file);
 
-            // Extraer Telemetría
+            // 2. Extraer Telemetría (Pitch, Yaw, Altitud)
             const pitch = data.GimbalPitchDegree || data.FlightPitchDegree || 0;
             const yaw = data.FlightYawDegree || data.GimbalYawDegree || 0;
             const alt = data.RelativeAltitude || data.AbsoluteAltitude || 0;
 
-            // Actualizar Interfaz
+            // 3. Actualizar los Inputs de la Interfaz
             document.getElementById('gimbal-pitch').value = Math.abs(pitch).toFixed(1);
             document.getElementById('drone-heading').value = normalizarGrados(yaw).toFixed(0);
             document.getElementById('manual-alt').value = Math.abs(alt).toFixed(0);
@@ -116,18 +117,31 @@ if (btnSubir && inputDrone) {
                 ${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}
             `;
 
-            const fotoURL = URL.createObjectURL(file);
+            // 4. Crear Marcador con la Foto Grande
             L.marker([data.latitude, data.longitude], { icon: droneIcon })
                 .addTo(map)
-                .bindPopup(`<img src="${fotoURL}" width="150">`)
+                .bindPopup(`
+                    <div style="text-align:center; min-width: 350px;">
+                        <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
+                        <img src="${fotoURL}" 
+                             style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" 
+                             onclick="window.open('${fotoURL}', '_blank')">
+                        <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa sobre la imagen para resolución original</p>
+                    </div>
+                `, {
+                    maxWidth: 400,
+                    className: 'popup-drone-grande'
+                })
                 .openPopup();
 
+            // 5. Mover el mapa a la posición
             map.flyTo([data.latitude, data.longitude], 19);
-            actualizarEstadoImportacion('ok', 'Telemetría cargada');
+            actualizarEstadoImportacion('ok', 'Telemetría DJI cargada correctamente');
 
         } catch (err) {
             actualizarEstadoImportacion('error', err.message);
-            alert("Error: " + err.message);
+            alert("Error al procesar la foto: " + err.message);
+            console.error(err);
         }
     };
 }
@@ -182,13 +196,58 @@ document.getElementById('btn-proyectar').onclick = () => {
 // 5. LOCALIZACIÓN Y CLIMA
 // =========================================================
 
-document.getElementById('btn-localizar').onclick = () => {
-    navigator.geolocation.getCurrentPosition(p => {
-        const { latitude: lat, longitude: lon } = p.coords;
-        map.flyTo([lat, lon], 18);
-        L.circleMarker([lat, lon], { radius: 8, color: '#fff', fillColor: '#0078d4', fillOpacity: 0.8 }).addTo(map);
-    });
-};
+// --- COPIAR DESDE AQUÍ ---
+function localizarUsuario() {
+    const infoDiv = document.getElementById('info-coords');
+
+    if (!navigator.geolocation) {
+        alert("Tu navegador no soporta geolocalización.");
+        return;
+    }
+
+    infoDiv.innerHTML = "🛰️ Buscando señal...";
+
+    navigator.geolocation.getCurrentPosition(
+        (p) => {
+            const { latitude: lat, longitude: lon, accuracy: acc } = p.coords;
+
+            // 1. Centrar el mapa en tu posición
+            map.flyTo([lat, lon], 18);
+
+            // 2. Crear o mover el marcador azul
+            if (window.marcadorUsuario) {
+                window.marcadorUsuario.setLatLng([lat, lon]);
+            } else {
+                window.marcadorUsuario = L.circleMarker([lat, lon], {
+                    radius: 8, color: '#fff', fillColor: '#0078d4', fillOpacity: 0.8, weight: 2
+                }).addTo(map);
+            }
+
+            // 3. ACTUALIZAR EL PANEL (Esto es lo que te faltaba)
+            infoDiv.innerHTML = `
+                <div style="background: #2c3e50; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; margin-top: 10px;">
+                    <strong style="color: #3498db;">📍 Mi Ubicación:</strong><br>
+                    ${decimalADMS(lat, true)}<br>
+                    ${decimalADMS(lon, false)}<br>
+                    <small style="color: #bdc3c7;">Precisión: +/- ${acc.toFixed(0)}m</small>
+                </div>
+            `;
+
+            if (typeof actualizarEstadoImportacion === 'function') {
+                actualizarEstadoImportacion('ok', 'GPS Localizado');
+            }
+        },
+        (error) => {
+            infoDiv.innerHTML = "❌ Error al obtener GPS. Verifica los permisos de tu navegador.";
+            console.error(error);
+        },
+        { enableHighAccuracy: true }
+    );
+}
+
+// Vinculamos la función al botón
+document.getElementById('btn-localizar').onclick = localizarUsuario;
+// --- HASTA AQUÍ ---
 
 document.getElementById('btn-clima-actual').onclick = async () => {
     navigator.geolocation.getCurrentPosition(async (p) => {
