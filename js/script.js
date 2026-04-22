@@ -2,51 +2,45 @@
 // 1. VARIABLES GLOBALES Y MAPA
 // =========================================================
 let ultimasCoordsReales = { lat: 0, lon: 0 };
-let modoMedicion = false, modoPoligono = false, modoMarcadoManual = false;
-let puntosTemp = [], marcadoresTemp = [];
-let historialMediciones = [], historialPoligonos = [], historialPuntos = [];
-let contadorCalculos = 0; // Para el historial de proyecciones
+let modoMedicion = false;
+let modoPoligono = false;
+let modoMarcadoManual = false;
+let puntosTemp = [];
+let marcadoresTemp = [];
+let historialMediciones = [];
+let historialPoligonos = [];
+let historialPuntos = [];
 
 const WEATHER_API_KEY = "ee2057b73b750d1fae6127e3ce2d091d";
+const STORAGE_KEY = "geovision_data";
 
-const googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-    maxZoom: 21, subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+const googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
+    maxZoom: 21,
+    subdomains: ["mt0", "mt1", "mt2", "mt3"]
 });
 
-const map = L.map('map', {
-    center: [-26.837, -65.203], zoom: 15, layers: [googleHybrid], doubleClickZoom: false
+const map = L.map("map", {
+    center: [-26.837, -65.203],
+    zoom: 15,
+    layers: [googleHybrid],
+    doubleClickZoom: false
 });
 
 const droneIcon = L.icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png',
-    iconSize: [45, 45], iconAnchor: [22, 22]
+    iconUrl: "https://cdn-icons-png.flaticon.com/512/252/252025.png",
+    iconSize: [45, 45],
+    iconAnchor: [22, 22]
 });
 
 const iconoMira = L.icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/252/252025.png',
-    iconSize: [40, 40], iconAnchor: [20, 20]
+    iconUrl: "https://cdn-icons-png.flaticon.com/512/252/252025.png",
+    iconSize: [40, 40],
+    iconAnchor: [20, 20]
 });
-// 1. LA FUNCIÓN DE CARGA (Libre, afuera de todo)
-function cargarDesdeLocal() {
-    const guardado = localStorage.getItem('geovision_data');
-    if (!guardado) return;
-    const datos = JSON.parse(guardado);
-    // ... resto de tu lógica de carga ...
-    console.log("✅ Datos cargados");
-}
-
-// 2. EL DISPARADOR (Solo llama a la función cuando la página está lista)
-window.onload = function () {
-    if (window.L && L.GeometryUtil) {
-        console.log("✅ LIBRERÍA DE GEOMETRÍA CARGADA");
-    }
-    cargarDesdeLocal(); // <-- ASEGÚRATE QUE NO TENGA LA "L" EXTRA
-};
 
 // =========================================================
-// 2. FUNCIONES DE APOYO (LAS 9 FUNCIONES Y MÁS)
+// 2. FUNCIONES DE APOYO
 // =========================================================
-
 function decimalADMS(d, esLat) {
     const abs = Math.abs(d);
     const g = Math.floor(abs);
@@ -59,311 +53,257 @@ function normalizarGrados(grados) {
     return ((grados % 360) + 360) % 360;
 }
 
-function actualizarEstadoImportacion(tipo, detalle) {
-    const estadoDiv = document.getElementById('estado-importacion');
-    if (!estadoDiv) return;
-    const estilos = {
-        waiting: { bg: '#2c3e50', fg: '#ecf0f1', label: 'Procesando...' },
-        error: { bg: '#5c1f1f', fg: '#f8d7da', label: 'Error' },
-        ok: { bg: '#1f5d3a', fg: '#d4f5e2', label: 'XMP OK' }
-    };
-    const estilo = estilos[tipo] || estilos.waiting;
-    estadoDiv.style.background = estilo.bg;
-    estadoDiv.style.color = estilo.fg;
-    estadoDiv.innerHTML = `Estado: <strong>${estilo.label}</strong>${detalle ? `<br><small>${detalle}</small>` : ''}`;
-}
-
 function proyectar(lat, lon, dist, rumbo) {
-    const R = 6371000, r = (rumbo * Math.PI) / 180, la = (lat * Math.PI) / 180, lo = (lon * Math.PI) / 180, d = dist / R;
+    const R = 6371000;
+    const r = (rumbo * Math.PI) / 180;
+    const la = (lat * Math.PI) / 180;
+    const lo = (lon * Math.PI) / 180;
+    const d = dist / R;
     const nLa = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(r));
     const nLo = lo + Math.atan2(Math.sin(r) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(nLa));
     return { lat: (nLa * 180) / Math.PI, lon: (nLo * 180) / Math.PI };
 }
 
-// =========================================================
-// 3 CARGA DE FOTO Y TELEMETRÍA (VERSION CORREGIDA)
-// =========================================================
-const inputDrone = document.getElementById('input-drone');
-const btnSubir = document.getElementById('btn-subir-foto');
+function actualizarEstadoImportacion(tipo, detalle) {
+    const estadoDiv = document.getElementById("estado-importacion");
+    if (!estadoDiv) return;
 
-if (btnSubir && inputDrone) {
+    const estilos = {
+        waiting: { bg: "#2c3e50", fg: "#ecf0f1", label: "Procesando..." },
+        error: { bg: "#5c1f1f", fg: "#f8d7da", label: "Error" },
+        ok: { bg: "#1f5d3a", fg: "#d4f5e2", label: "OK" }
+    };
+    const estilo = estilos[tipo] || estilos.waiting;
+
+    estadoDiv.style.background = estilo.bg;
+    estadoDiv.style.color = estilo.fg;
+    estadoDiv.innerHTML = `Estado: <strong>${estilo.label}</strong>${detalle ? `<br><small>${detalle}</small>` : ""}`;
+}
+
+// =========================================================
+// 3. TELEMETRIA, CLIMA Y PROYECCION
+// =========================================================
+function bindFotoDrone() {
+    const inputDrone = document.getElementById("input-drone");
+    const btnSubir = document.getElementById("btn-subir-foto");
+    const btnClimaVuelo = document.getElementById("btn-clima");
+
+    if (!btnSubir || !inputDrone) return;
     btnSubir.onclick = () => inputDrone.click();
 
-    inputDrone.onchange = async function () {
+    inputDrone.onchange = async function onChange() {
         const file = this.files[0];
         if (!file) return;
 
-        actualizarEstadoImportacion('waiting', `Analizando ${file.name}...`);
+        actualizarEstadoImportacion("waiting", `Analizando ${file.name}...`);
 
         try {
-            // Usamos exifr para leer los metadatos XMP de DJI
-            const data = await exifr.parse(file, {
-                gps: true,
-                xmp: true,
-                multiSegment: true
-            });
-
-            if (!data || !data.latitude) {
+            const data = await exifr.parse(file, { gps: true, xmp: true, multiSegment: true });
+            if (!data || typeof data.latitude !== "number" || typeof data.longitude !== "number") {
                 throw new Error("La foto no tiene coordenadas GPS.");
             }
 
-            // 1. Guardar coordenadas para cálculos posteriores
             ultimasCoordsReales = { lat: data.latitude, lon: data.longitude };
             const fotoURL = URL.createObjectURL(file);
+            const pitch = data.GimbalPitchDegree ?? data.FlightPitchDegree ?? 0;
+            const yaw = data.FlightYawDegree ?? data.GimbalYawDegree ?? 0;
+            const alt = data.RelativeAltitude ?? data.AbsoluteAltitude ?? 0;
 
-            // 2. Extraer Telemetría (Pitch, Yaw, Altitud)
-            const pitch = data.GimbalPitchDegree || data.FlightPitchDegree || 0;
-            const yaw = data.FlightYawDegree || data.GimbalYawDegree || 0;
-            const alt = data.RelativeAltitude || data.AbsoluteAltitude || 0;
+            document.getElementById("gimbal-pitch").value = Math.abs(pitch).toFixed(1);
+            document.getElementById("drone-heading").value = normalizarGrados(yaw).toFixed(0);
+            document.getElementById("manual-alt").value = Math.abs(alt).toFixed(0);
 
-            // 3. Actualizar los Inputs de la Interfaz
-            document.getElementById('gimbal-pitch').value = Math.abs(pitch).toFixed(1);
-            document.getElementById('drone-heading').value = normalizarGrados(yaw).toFixed(0);
-            document.getElementById('manual-alt').value = Math.abs(alt).toFixed(0);
+            document.getElementById("telemetria-drone").innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}`;
 
-            document.getElementById('telemetria-drone').innerHTML = `
-                <strong>Foto:</strong> ${file.name}<br>
-                ${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}
-            `;
+            if (btnClimaVuelo) btnClimaVuelo.style.display = "block";
 
-            // 4. Crear Marcador con la Foto Grande
             L.marker([data.latitude, data.longitude], { icon: droneIcon })
                 .addTo(map)
-                .bindPopup(`
-                    <div style="text-align:center; min-width: 350px;">
+                .bindPopup(
+                    `<div style="text-align:center; min-width: 300px;">
                         <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
-                        <img src="${fotoURL}" 
-                             style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" 
-                             onclick="window.open('${fotoURL}', '_blank')">
-                        <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa sobre la imagen para resolución original</p>
-                    </div>
-                `, {
-                    maxWidth: 400,
-                    className: 'popup-drone-grande'
-                })
+                        <img src="${fotoURL}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" onclick="window.open('${fotoURL}', '_blank')">
+                        <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa para ver imagen completa</p>
+                    </div>`,
+                    { maxWidth: 360, className: "popup-drone-grande" }
+                )
                 .openPopup();
 
-            // 5. Mover el mapa a la posición
             map.flyTo([data.latitude, data.longitude], 19);
-            actualizarEstadoImportacion('ok', 'Telemetría DJI cargada correctamente');
-
+            actualizarEstadoImportacion("ok", "Telemetria de vuelo cargada");
         } catch (err) {
-            actualizarEstadoImportacion('error', err.message);
-            alert("Error al procesar la foto: " + err.message);
-            console.error(err);
+            const msg = err && err.message ? err.message : "No se pudo leer metadatos de la foto.";
+            actualizarEstadoImportacion("error", msg);
+            alert(`Error al procesar la foto: ${msg}`);
         }
     };
 }
 
-// =========================================================
-// 4. CÁLCULO DE OBJETIVO E HISTORIAL (NUEVO)
-// =========================================================
+function bindProyeccion() {
+    document.getElementById("btn-proyectar").onclick = () => {
+        if (ultimasCoordsReales.lat === 0 && ultimasCoordsReales.lon === 0) {
+            alert("Primero debes subir una foto del drone.");
+            return;
+        }
 
-document.getElementById('btn-proyectar').onclick = () => {
-    // 1. Verificamos que tengamos posición del drone
-    if (!ultimasCoordsReales || ultimasCoordsReales.lat === 0) {
-        return alert("Primero debes subir una foto del drone.");
-    }
+        const alt = parseFloat(document.getElementById("manual-alt").value);
+        const pitchOriginal = parseFloat(document.getElementById("gimbal-pitch").value);
+        const head = parseFloat(document.getElementById("drone-heading").value);
+        if (Number.isNaN(alt) || Number.isNaN(pitchOriginal) || Number.isNaN(head)) {
+            alert("Completa Altitud, Pitch y Heading con numeros validos.");
+            return;
+        }
 
-    // 2. Capturamos los datos de los inputs
-    const alt = parseFloat(document.getElementById('manual-alt').value);
-    const pitchOriginal = parseFloat(document.getElementById('gimbal-pitch').value);
-    const head = parseFloat(document.getElementById('drone-heading').value);
+        const pitchAbs = Math.abs(pitchOriginal);
+        let distH = 0;
+        if (pitchAbs < 89.5) {
+            const anguloVerticalRad = ((90 - pitchAbs) * Math.PI) / 180;
+            distH = alt * Math.tan(anguloVerticalRad);
+        }
 
-    // 3. Validación de números
-    if (isNaN(alt) || isNaN(pitchOriginal) || isNaN(head)) {
-        return alert("Por favor, completa Altitud, Pitch y Heading con números.");
-    }
+        const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, head);
 
-    // --- TRIGONOMETRÍA PARA DISTANCIA HORIZONTAL ---
-    const pitchAbs = Math.abs(pitchOriginal);
-    let distH = 0;
+        L.marker([obj.lat, obj.lon], { icon: iconoMira })
+            .addTo(map)
+            .bindPopup(
+                `<div style="text-align:center;">
+                    <strong style="color:#2980b9;">Objetivo calculado</strong><br>
+                    <small>${decimalADMS(obj.lat, true)}<br>${decimalADMS(obj.lon, false)}</small><br>
+                    <hr style="margin:5px 0;">
+                    <span>Distancia: <strong>${distH.toFixed(1)} m</strong></span>
+                </div>`
+            )
+            .openPopup();
 
-    // Si el gimbal no está mirando totalmente hacia abajo (90°)
-    if (pitchAbs < 89.5) {
-        // El ángulo que nos interesa es el que forma con la vertical (90 - pitch)
-        const anguloVerticalRad = ((90 - pitchAbs) * Math.PI) / 180;
-        distH = alt * Math.tan(anguloVerticalRad);
-    }
-    // -----------------------------------------------
+        L.polyline(
+            [
+                [ultimasCoordsReales.lat, ultimasCoordsReales.lon],
+                [obj.lat, obj.lon]
+            ],
+            { color: "#db4a34", weight: 4, dashArray: "5,10", opacity: 1 }
+        ).addTo(map);
 
-    // 4. Calculamos las coordenadas del objetivo (Punto en el suelo)
-    const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, head);
+        document.getElementById("resultado-mira").innerHTML = `Objetivo a ${distH.toFixed(1)} m`;
+        map.flyTo([obj.lat, obj.lon], 19);
+    };
+}
 
-    // 5. Dibujamos el Marcador del Objetivo
-    const latDMS = decimalADMS(obj.lat, true);
-    const lonDMS = decimalADMS(obj.lon, false);
+function renderClima(infoDiv, data, color) {
+    const temp = data.main.temp;
+    const viento = data.wind.speed * 3.6;
+    const humedad = data.main.humidity;
+    const desc = data.weather[0].description;
+    infoDiv.innerHTML = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid ${color}; margin-top:5px;">
+        <span style="text-transform: capitalize; font-weight: bold; color:${color};">${desc}</span><br>
+        🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
+        💧 <b>Humedad:</b> ${humedad}%<br>
+        💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
+    </div>`;
+}
 
-    L.marker([obj.lat, obj.lon], { icon: iconoMira })
-        .addTo(map)
-        .bindPopup(`
-            <div style="text-align:center;">
-                <strong style="color:#2980b9;">🎯 OBJETIVO CALCULADO</strong><br>
-                <small>${latDMS}<br>${lonDMS}</small><br>
-                <hr style="margin:5px 0;">
-                <span>Distancia: <strong>${distH.toFixed(1)} m</strong></span>
-            </div>
-        `)
-        .openPopup();
+function bindClima() {
+    document.getElementById("btn-clima-actual").onclick = () => {
+        const infoDiv = document.getElementById("info-clima-actual");
+        infoDiv.innerText = "Obteniendo clima local...";
+        navigator.geolocation.getCurrentPosition(async (p) => {
+            try {
+                const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${p.coords.latitude}&lon=${p.coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
+                const data = await resp.json();
+                renderClima(infoDiv, data, "#2980b9");
+            } catch (_e) {
+                infoDiv.innerText = "Error al obtener clima local.";
+            }
+        }, () => {
+            infoDiv.innerText = "No se pudo obtener GPS local.";
+        });
+    };
 
-    // 6. Dibujamos la LÍNEA PUNTEADA (Trayectoria)
-    const puntosLinea = [
-        [ultimasCoordsReales.lat, ultimasCoordsReales.lon],
-        [obj.lat, obj.lon]
-    ];
+    const btnClimaVuelo = document.getElementById("btn-clima");
+    if (!btnClimaVuelo) return;
+    btnClimaVuelo.onclick = async () => {
+        if (!ultimasCoordsReales.lat && !ultimasCoordsReales.lon) return;
+        const infoDiv = document.getElementById("info-clima");
+        infoDiv.innerText = "Consultando clima del vuelo...";
+        try {
+            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${ultimasCoordsReales.lat}&lon=${ultimasCoordsReales.lon}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
+            const data = await resp.json();
+            renderClima(infoDiv, data, "#3498db");
+        } catch (_e) {
+            infoDiv.innerText = "Error al obtener clima del vuelo.";
+        }
+    };
+}
 
-    L.polyline(puntosLinea, {
-        color: '#db4a34',
-        weight: 5,
-        dashArray: '5, 10',
-        opacity: 1
-    }).addTo(map);
-
-    // 7. Centramos el mapa en el objetivo
-    map.flyTo([obj.lat, obj.lon], 19);
-
-    // 8. Actualizamos el historial si la función existe
-    if (typeof agregarAHistorial === "function") {
-        agregarAHistorial(obj.lat, obj.lon, distH, head);
-    }
-};
-
-// =========================================================
-// 5. LOCALIZACIÓN Y CLIMA
-// =========================================================
 function localizarUsuario() {
-    const infoDiv = document.getElementById('info-coords');
-
+    const infoDiv = document.getElementById("info-coords");
     if (!navigator.geolocation) {
-        alert("Tu navegador no soporta geolocalización.");
+        infoDiv.innerText = "Tu navegador no soporta geolocalizacion.";
         return;
     }
-
-    infoDiv.innerHTML = "🛰️ Buscando señal...";
-
-    navigator.geolocation.getCurrentPosition(
-        (p) => {
-            const { latitude: lat, longitude: lon, accuracy: acc } = p.coords;
-
-            // 1. Centrar el mapa en tu posición
-            map.flyTo([lat, lon], 18);
-
-            // 2. Crear o mover el marcador azul
-            if (window.marcadorUsuario) {
-                window.marcadorUsuario.setLatLng([lat, lon]);
-            } else {
-                window.marcadorUsuario = L.circleMarker([lat, lon], {
-                    radius: 8, color: '#fff', fillColor: '#0078d4', fillOpacity: 0.8, weight: 2
-                }).addTo(map);
-            }
-
-            // 3. ACTUALIZAR EL PANEL (Esto es lo que te faltaba)
-            infoDiv.innerHTML = `
-                <div style="background: #2c3e50; padding: 10px; border-radius: 5px; border-left: 4px solid #3498db; margin-top: 10px;">
-                    <strong style="color: #3498db;">📍 Mi Ubicación:</strong><br>
-                    ${decimalADMS(lat, true)}<br>
-                    ${decimalADMS(lon, false)}<br>
-                    <small style="color: #bdc3c7;">Precisión: +/- ${acc.toFixed(0)}m</small>
-                </div>
-            `;
-
-            if (typeof actualizarEstadoImportacion === 'function') {
-                actualizarEstadoImportacion('ok', 'GPS Localizado');
-            }
-        },
-        (error) => {
-            infoDiv.innerHTML = "❌ Error al obtener GPS. Verifica los permisos de tu navegador.";
-            console.error(error);
-        },
-        { enableHighAccuracy: true }
-    );
-}
-
-// Vinculamos la función al botón
-document.getElementById('btn-localizar').onclick = localizarUsuario;
-
-document.getElementById('btn-clima-actual').onclick = async () => {
-    navigator.geolocation.getCurrentPosition(async (p) => {
-        const infoDiv = document.getElementById('info-clima-actual');
-        try {
-            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${p.coords.latitude}&lon=${p.coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
-            const data = await resp.json();
-            infoDiv.innerHTML = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid #2980b9; margin-top:5px;">🌡️ ${data.main.temp.toFixed(1)}°C | 💨 ${(data.wind.speed * 3.6).toFixed(1)} km/h</div>`;
-        } catch (e) { infoDiv.innerText = "Error clima."; }
-    });
-    // 6. MEDICIÓN DE DISTANCIA Y ÁREA
-    // =========================================================
-    // =========================================================
-    // 6. MEDICIÓN DE DISTANCIA Y ÁREA
-    // =========================================================
-
-    // 1. PRIMERO PEGAS EL MOTOR DE CLICS (Lo que te falta)
-    map.on('click', (e) => {
-        if (modoMedicion) {
-            puntosTemp.push(e.latlng);
-            L.circleMarker(e.latlng, { radius: 3, color: 'red' }).addTo(map);
-            if (puntosTemp.length === 2) {
-                const dist = map.distance(puntosTemp[0], puntosTemp[1]);
-                const linea = L.polyline(puntosTemp, { color: 'red' }).addTo(map);
-                linea.bindTooltip(`${dist.toFixed(1)}m`, { permanent: true }).openTooltip();
-
-                // Guardamos para el historial
-                historialMediciones.push({
-                    id: Date.now(),
-                    linea: linea,
-                    distancia: dist.toFixed(1),
-                    nombre: "Medida"
-                });
-
-                puntosTemp = [];
-                modoMedicion = false;
-                if (typeof guardarEnLocal === 'function') guardarEnLocal();
-            }
+    infoDiv.innerText = "Buscando señal GPS...";
+    navigator.geolocation.getCurrentPosition((p) => {
+        const { latitude: lat, longitude: lon, accuracy: acc } = p.coords;
+        map.flyTo([lat, lon], 18);
+        if (window.marcadorUsuario) {
+            window.marcadorUsuario.setLatLng([lat, lon]);
+        } else {
+            window.marcadorUsuario = L.circleMarker([lat, lon], {
+                radius: 8,
+                color: "#fff",
+                fillColor: "#0078d4",
+                fillOpacity: 0.8,
+                weight: 2
+            }).addTo(map);
         }
-        if (modoPoligono) {
-            puntosTemp.push(e.latlng);
-            L.circleMarker(e.latlng, { radius: 3, color: 'green' }).addTo(map);
-        }
-    });
-
-    // 2. LUEGO SIGUEN TUS BOTONES (Lo que ya tienes en la foto)
-    document.getElementById('btn-modo-medicion').onclick = () => {
-        modoMedicion = !modoMedicion;
-        modoPoligono = false;
-        puntosTemp = [];
-        console.log("Modo medición:", modoMedicion);
-    };
-
-    document.getElementById('btn-modo-poligono').onclick = () => {
-        modoPoligono = !modoPoligono;
-        modoMedicion = false;
-        puntosTemp = [];
-        console.log("Modo polígono:", modoPoligono);
-    };
+        infoDiv.innerHTML = `<strong>Mi Ubicacion:</strong><br>${decimalADMS(lat, true)}<br>${decimalADMS(lon, false)}<br><small>Precision +/- ${acc.toFixed(0)}m</small>`;
+    }, () => {
+        infoDiv.innerText = "Error al obtener GPS. Verifica permisos.";
+    }, { enableHighAccuracy: true });
 }
 
 // =========================================================
-// 7. ACTUALIZACIÓN DE LISTAS Y ETIQUETAS
+// 4. MEDICION Y PUNTOS
 // =========================================================
+function agregarPuntoManual(latlng, nombre) {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    const nombreFinal = nombre || `Punto ${historialPuntos.length + 1}`;
+    const m = L.marker(latlng, { icon: droneIcon, draggable: true }).addTo(map);
+    m.bindTooltip(nombreFinal, { permanent: true, direction: "top", className: "etiqueta-punto" }).openTooltip();
+    m.on("dragend", () => {
+        const p = historialPuntos.find((x) => x.id === id);
+        if (p) {
+            const ll = m.getLatLng();
+            p.lat = ll.lat;
+            p.lng = ll.lng;
+            guardarEnLocal();
+        }
+    });
+    historialPuntos.push({ id, m, nombre: nombreFinal, lat: latlng.lat, lng: latlng.lng });
+    actualizarListaPuntos();
+    guardarEnLocal();
+}
+
 function actualizarListaPuntos() {
-    const ui = document.getElementById('lista-puntos'); ui.innerHTML = "";
-    historialPuntos.forEach(p => {
-        const li = document.createElement('li');
+    const ui = document.getElementById("lista-puntos");
+    ui.innerHTML = "";
+    historialPuntos.forEach((p) => {
+        const li = document.createElement("li");
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
         li.innerHTML = `<input type="text" value="${p.nombre}" onchange="cambiarNombrePunto(${p.id}, this.value)" style="background:none; border:1px solid #555; color:#fff; width:110px; font-size:0.8em;">
             <button onclick="borrarPunto(${p.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
         ui.appendChild(li);
-        guardarEnLocal();
     });
 }
 
 function actualizarListaLineas() {
-    const ui = document.getElementById('lista-medidas'); ui.innerHTML = "";
-    historialMediciones.forEach(m => {
-        const txt = m.dist > 1000 ? (m.dist / 1000).toFixed(2) + "km" : m.dist.toFixed(1) + "m";
-        m.linea.bindTooltip(`<b>${m.nombre}</b><br>${txt}`, { permanent: true, direction: 'center' }).openTooltip();
+    const ui = document.getElementById("lista-medidas");
+    ui.innerHTML = "";
+    historialMediciones.forEach((m) => {
+        const distancia = Number(m.distancia) || 0;
+        const txt = distancia > 1000 ? `${(distancia / 1000).toFixed(2)}km` : `${distancia.toFixed(1)}m`;
+        m.linea.bindTooltip(`<b>${m.nombre}</b><br>${txt}`, { permanent: true, direction: "center", className: "etiqueta-medicion" }).openTooltip();
 
-        const li = document.createElement('li');
+        const li = document.createElement("li");
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
         li.innerHTML = `<div style="display:flex; flex-direction:column;">
                 <input type="text" value="${m.nombre}" onchange="cambiarNombreLinea(${m.id}, this.value)" style="background:none; border:1px solid #555; color:#3498db; width:100px; font-size:0.8em;">
@@ -371,205 +311,462 @@ function actualizarListaLineas() {
             </div>
             <button onclick="borrarLinea(${m.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
         ui.appendChild(li);
-        guardarEnLocal();
     });
 }
 
+function calcularAreaTexto(latLngs) {
+    if (!L.GeometryUtil || !L.GeometryUtil.geodesicArea) return "---";
+    const area = L.GeometryUtil.geodesicArea(latLngs);
+    return area > 10000 ? `${(area / 10000).toFixed(2)} ha` : `${area.toFixed(1)} m²`;
+}
+
 function actualizarInfoPoligono(id) {
-    const p = historialPoligonos.find(x => x.id === id);
+    const p = historialPoligonos.find((x) => x.id === id);
     if (!p) return;
-
     const ll = p.objeto.getLatLngs()[0];
-    let areaTexto = "Calculando...";
-
-    if (L.GeometryUtil && L.GeometryUtil.geodesicArea) {
-        const a = L.GeometryUtil.geodesicArea(ll);
-        areaTexto = a > 10000 ? (a / 10000).toFixed(2) + " ha" : a.toFixed(1) + " m²";
-    }
-
-    p.areaTxt = areaTexto;
-    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${areaTexto}`, {
+    p.areaTxt = calcularAreaTexto(ll);
+    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${p.areaTxt}`, {
         permanent: true,
-        direction: 'center',
-        className: 'etiqueta-area'
+        direction: "center",
+        className: "etiqueta-area"
     }).openTooltip();
-
     actualizarListaPoligonos();
 }
 
 function actualizarListaPoligonos() {
-    const ui = document.getElementById('lista-poligonos');
-    if (!ui) return;
+    const ui = document.getElementById("lista-poligonos");
     ui.innerHTML = "";
-    guardarEnLocal();
-
-    historialPoligonos.forEach(x => {
-        ui.innerHTML += `
-            <li style="border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;">
-                <div style="display:flex; flex-direction:column;">
-                    <input type="text" value="${x.nombre}" onchange="cambiarNombrePoligono(${x.id}, this.value)" 
-                           style="background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;">
-                    <small style="color:#aaa;">${x.areaTxt || "---"}</small>
-                </div>
-                <button onclick="borrarPoligono(${x.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>
-            </li>`;
+    historialPoligonos.forEach((x) => {
+        const li = document.createElement("li");
+        li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
+        li.innerHTML = `<div style="display:flex; flex-direction:column;">
+                <input type="text" value="${x.nombre}" onchange="cambiarNombrePoligono(${x.id}, this.value)" style="background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;">
+                <small style="color:#aaa;">${x.areaTxt || "---"}</small>
+            </div>
+            <button onclick="borrarPoligono(${x.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
+        ui.appendChild(li);
     });
 }
 
-// =========================================================
-// 8. FUNCIONES GLOBALES DE BORRADO Y NOMBRES
-// =========================================================
-window.cambiarNombrePunto = (id, n) => {
-    const p = historialPuntos.find(x => x.id === id);
-    if (p) {
-        p.nombre = n;
-        p.m.setTooltipContent(n);
-        p.m.bindPopup(`<b>${n}</b>`);
+function bindHerramientas() {
+    const btnRegla = document.getElementById("btn-regla");
+    const btnPoligono = document.getElementById("btn-poligono");
+    const btnPunto = document.getElementById("btn-modo-punto");
+
+    function refrescarEstadoHerramientas() {
+        btnRegla.classList.toggle("is-active", modoMedicion);
+        btnPoligono.classList.toggle("is-active", modoPoligono);
+        btnPunto.classList.toggle("is-active", modoMarcadoManual);
+        btnPunto.innerText = modoMarcadoManual ? "📍 Marcador Manual: ACTIVO" : "📍 Marcador Manual: Desactivado";
     }
-};
-window.cambiarNombreLinea = (id, n) => {
-    const m = historialMediciones.find(x => x.id === id);
-    if (m) { m.nombre = n; actualizarListaLineas(); }
-};
-window.cambiarNombrePoligono = (id, n) => {
-    const x = historialPoligonos.find(p => p.id === id);
-    if (x) { x.nombre = n; actualizarInfoPoligono(id); }
-};
 
-window.borrarLinea = id => {
-    const i = historialMediciones.findIndex(x => x.id === id);
-    if (i !== -1) { map.removeLayer(historialMediciones[i].linea); historialMediciones.splice(i, 1); actualizarListaLineas(); }
-};
+    document.getElementById("btn-regla").onclick = () => {
+        modoMedicion = !modoMedicion;
+        modoPoligono = false;
+        modoMarcadoManual = false;
+        puntosTemp = [];
+        refrescarEstadoHerramientas();
+    };
 
-window.borrarPoligono = id => {
-    const i = historialPoligonos.findIndex(x => x.id === id);
-    if (i !== -1) {
-        map.removeLayer(historialPoligonos[i].objeto);
-        historialPoligonos[i].marcadores.forEach(m => map.removeLayer(m));
-        historialPoligonos.splice(i, 1);
-        actualizarListaPoligonos();
+    document.getElementById("btn-poligono").onclick = () => {
+        modoPoligono = !modoPoligono;
+        modoMedicion = false;
+        modoMarcadoManual = false;
+        puntosTemp = [];
+        marcadoresTemp.forEach((m) => map.removeLayer(m));
+        marcadoresTemp = [];
+        refrescarEstadoHerramientas();
+    };
+
+    document.getElementById("btn-modo-punto").onclick = () => {
+        modoMarcadoManual = !modoMarcadoManual;
+        modoMedicion = false;
+        modoPoligono = false;
+        puntosTemp = [];
+        refrescarEstadoHerramientas();
+    };
+
+    map.on("click", (e) => {
+        if (modoMarcadoManual) {
+            agregarPuntoManual(e.latlng);
+            return;
+        }
+
+        if (modoMedicion) {
+            puntosTemp.push(e.latlng);
+            L.circleMarker(e.latlng, { radius: 4 }).addTo(map);
+            if (puntosTemp.length === 2) {
+                const distancia = map.distance(puntosTemp[0], puntosTemp[1]);
+                const id = Date.now();
+                const linea = L.polyline(puntosTemp, { color: "#3498db", weight: 3 }).addTo(map);
+                historialMediciones.push({ id, linea, distancia, nombre: `Medida ${historialMediciones.length + 1}` });
+                actualizarListaLineas();
+                guardarEnLocal();
+                puntosTemp = [];
+                modoMedicion = false;
+                refrescarEstadoHerramientas();
+            }
+            return;
+        }
+
+        if (modoPoligono) {
+            puntosTemp.push(e.latlng);
+            marcadoresTemp.push(L.circleMarker(e.latlng, { radius: 4, color: "#2ecc71" }).addTo(map));
+        }
+    });
+
+    map.on("dblclick", () => {
+        if (!modoPoligono || puntosTemp.length < 3) return;
+        const id = Date.now();
+        const poli = L.polygon(puntosTemp, { color: "#2ecc71", fillOpacity: 0.3 }).addTo(map);
+        const vertices = [];
+
+        puntosTemp.forEach((ll) => {
+            const v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: "vertice-poligono", iconSize: [10, 10] }) }).addTo(map);
+            v.on("drag", () => {
+                poli.setLatLngs(vertices.map((marker) => marker.getLatLng()));
+                actualizarInfoPoligono(id);
+                guardarEnLocal();
+            });
+            vertices.push(v);
+        });
+
+        historialPoligonos.push({
+            id,
+            objeto: poli,
+            marcadores: vertices,
+            nombre: `Area ${historialPoligonos.length + 1}`,
+            areaTxt: ""
+        });
+        actualizarInfoPoligono(id);
+        guardarEnLocal();
+
+        puntosTemp = [];
+        marcadoresTemp.forEach((m) => map.removeLayer(m));
+        marcadoresTemp = [];
+        modoPoligono = false;
+        refrescarEstadoHerramientas();
+    });
+
+    refrescarEstadoHerramientas();
+}
+
+function initMobileBottomSheet() {
+    const sidebar = document.getElementById("sidebar");
+    const handle = document.getElementById("sidebar-handle");
+    if (!sidebar || !handle) return;
+
+    const mq = window.matchMedia("(max-width: 768px)");
+    const states = ["sheet-collapsed", "sheet-half", "sheet-full"];
+    let stateIndex = 0;
+
+    function aplicarEstado(indice) {
+        stateIndex = Math.max(0, Math.min(indice, states.length - 1));
+        states.forEach((s) => sidebar.classList.remove(s));
+        sidebar.classList.add(states[stateIndex]);
     }
+
+    function resetDesktop() {
+        states.forEach((s) => sidebar.classList.remove(s));
+        sidebar.classList.remove("sheet-dragging");
+        sidebar.style.transform = "";
+    }
+
+    function activarMobile() {
+        aplicarEstado(1);
+    }
+
+    function aplicarModoActual() {
+        if (mq.matches) activarMobile();
+        else resetDesktop();
+    }
+
+    handle.onclick = () => {
+        if (!mq.matches) return;
+        aplicarEstado((stateIndex + 1) % states.length);
+    };
+
+    let startY = 0;
+    let currentY = 0;
+    let dragging = false;
+
+    function onTouchStart(e) {
+        if (!mq.matches) return;
+        dragging = true;
+        startY = e.touches[0].clientY;
+        currentY = startY;
+        sidebar.classList.add("sheet-dragging");
+    }
+
+    function onTouchMove(e) {
+        if (!dragging || !mq.matches) return;
+        currentY = e.touches[0].clientY;
+    }
+
+    function onTouchEnd() {
+        if (!dragging || !mq.matches) return;
+        dragging = false;
+        sidebar.classList.remove("sheet-dragging");
+        const deltaY = currentY - startY;
+        if (deltaY < -40) {
+            aplicarEstado(stateIndex + 1);
+        } else if (deltaY > 40) {
+            aplicarEstado(stateIndex - 1);
+        } else {
+            aplicarEstado(stateIndex);
+        }
+    }
+
+    handle.addEventListener("touchstart", onTouchStart, { passive: true });
+    handle.addEventListener("touchmove", onTouchMove, { passive: true });
+    handle.addEventListener("touchend", onTouchEnd, { passive: true });
+
+    if (mq.addEventListener) mq.addEventListener("change", aplicarModoActual);
+    else mq.addListener(aplicarModoActual);
+
+    aplicarModoActual();
+}
+
+// =========================================================
+// 5. FUNCIONES GLOBALES DE UI
+// =========================================================
+window.cambiarNombrePunto = (id, nombre) => {
+    const p = historialPuntos.find((x) => x.id === id);
+    if (!p) return;
+    p.nombre = nombre || p.nombre;
+    p.m.setTooltipContent(p.nombre);
+    guardarEnLocal();
 };
 
-window.borrarPunto = id => {
-    const i = historialPuntos.findIndex(x => x.id === id);
-    if (i !== -1) { map.removeLayer(historialPuntos[i].m); historialPuntos.splice(i, 1); actualizarListaPuntos(); }
+window.cambiarNombreLinea = (id, nombre) => {
+    const m = historialMediciones.find((x) => x.id === id);
+    if (!m) return;
+    m.nombre = nombre || m.nombre;
+    actualizarListaLineas();
+    guardarEnLocal();
+};
+
+window.cambiarNombrePoligono = (id, nombre) => {
+    const p = historialPoligonos.find((x) => x.id === id);
+    if (!p) return;
+    p.nombre = nombre || p.nombre;
+    actualizarInfoPoligono(id);
+    guardarEnLocal();
+};
+
+window.borrarLinea = (id) => {
+    const i = historialMediciones.findIndex((x) => x.id === id);
+    if (i === -1) return;
+    map.removeLayer(historialMediciones[i].linea);
+    historialMediciones.splice(i, 1);
+    actualizarListaLineas();
+    guardarEnLocal();
+};
+
+window.borrarPoligono = (id) => {
+    const i = historialPoligonos.findIndex((x) => x.id === id);
+    if (i === -1) return;
+    map.removeLayer(historialPoligonos[i].objeto);
+    historialPoligonos[i].marcadores.forEach((m) => map.removeLayer(m));
+    historialPoligonos.splice(i, 1);
+    actualizarListaPoligonos();
+    guardarEnLocal();
+};
+
+window.borrarPunto = (id) => {
+    const i = historialPuntos.findIndex((x) => x.id === id);
+    if (i === -1) return;
+    map.removeLayer(historialPuntos[i].m);
+    historialPuntos.splice(i, 1);
+    actualizarListaPuntos();
+    guardarEnLocal();
 };
 
 window.borrarTodoElMapa = () => {
-    if (confirm("¿Estás seguro de que querés borrar todas las mediciones y puntos?")) {
-        historialMediciones.forEach(m => map.removeLayer(m.linea));
-        historialMediciones = [];
-        actualizarListaLineas();
-
-        historialPoligonos.forEach(p => {
-            map.removeLayer(p.objeto);
-            p.marcadores.forEach(m => map.removeLayer(m));
-        });
-        historialPoligonos = [];
-        actualizarListaPoligonos();
-
-        historialPuntos.forEach(p => map.removeLayer(p.m));
-        historialPuntos = [];
-        actualizarListaPuntos();
-
-        puntosTemp = [];
-        marcadoresTemp.forEach(m => map.removeLayer(m));
-        marcadoresTemp = [];
-
-        alert("Mapa limpio.");
-    }
+    if (!confirm("¿Estas seguro de borrar todas las mediciones y puntos?")) return;
+    historialMediciones.forEach((m) => map.removeLayer(m.linea));
+    historialPoligonos.forEach((p) => {
+        map.removeLayer(p.objeto);
+        p.marcadores.forEach((v) => map.removeLayer(v));
+    });
+    historialPuntos.forEach((p) => map.removeLayer(p.m));
+    marcadoresTemp.forEach((m) => map.removeLayer(m));
+    historialMediciones = [];
+    historialPoligonos = [];
+    historialPuntos = [];
+    marcadoresTemp = [];
+    puntosTemp = [];
+    actualizarListaLineas();
+    actualizarListaPoligonos();
+    actualizarListaPuntos();
+    guardarEnLocal();
 };
 
 // =========================================================
-// 9 CONEXIÓN FINAL DE EVENTOS
+// 6. EXPORTACION
 // =========================================================
-document.getElementById('btn-borrar-todo').onclick = window.borrarTodoElMapa;
-// =========================================================
-// 10 FUNCIONES DE GUARDADO EN LOCAL (CORREGIDAS)
-// =========================================================
-function guardarEnLocal() {
-    const datosGeo = {
-        // Guardamos las coordenadas de las líneas y su distancia
-        mediciones: historialMediciones.map(m => ({
-            coords: m.linea.getLatLngs(),
-            distancia: m.distancia
-        })),
-        // Guardamos los puntos de interés
-        puntosInteres: historialPuntos.map(p => ({
-            id: p.id,
-            lat: p.m.getLatLng().lat,
-            lng: p.m.getLatLng().lng,
-            nota: p.nota
-        })),
-        // Guardamos los polígonos
-        poligonos: historialPoligonos.map(p => ({
-            coords: p.objeto.getLatLngs()[0],
-            area: p.area,
-            id: p.id
-        }))
-    };
-    localStorage.setItem('geovision_data', JSON.stringify(datosGeo));
+function escaparXml(texto) {
+    return String(texto)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+}
 
-    function cargarDesdeLocal() {
-        const guardado = localStorage.getItem('geovision_data');
-        if (!guardado) return;
-        const datos = JSON.parse(guardado);
+function convertirPoligonosAKML() {
+    const placemarks = historialPoligonos.map((p) => {
+        const puntos = p.objeto.getLatLngs()[0] || [];
+        const coordenadas = puntos.map((pt) => `${pt.lng},${pt.lat},0`);
 
-        // 1. Re-dibujar Líneas
-        if (datos.mediciones) {
-            datos.mediciones.forEach(m => {
-                const linea = L.polyline(m.coords, { color: '#e74c3c', weight: 3 }).addTo(map);
-                // Restauramos la etiqueta con coordenadas y distancia
-                const latDest = m.coords[1].lat;
-                const lonDest = m.coords[1].lng;
-                linea.bindTooltip(
-                    `Distancia: ${m.distancia} m<br>Destino: ${latDest.toFixed(5)}, ${lonDest.toFixed(5)}`,
-                    { permanent: true, direction: "center", className: "etiqueta-punto" }
-                ).openTooltip();
-                historialMediciones.push({ linea: linea, distancia: m.distancia });
-            });
+        if (coordenadas.length > 0 && coordenadas[0] !== coordenadas[coordenadas.length - 1]) {
+            coordenadas.push(coordenadas[0]);
         }
 
-        // 2. Re-dibujar Puntos
-        if (datos.puntosInteres) {
-            datos.puntosInteres.forEach(p => {
-                agregarMarcadorManual(p.lat, p.lng, p.nota);
-            });
-        }
+        return `<Placemark>
+    <name>${escaparXml(p.nombre || "Poligono")}</name>
+    <description>${escaparXml(p.areaTxt || "")}</description>
+    <Polygon>
+      <outerBoundaryIs>
+        <LinearRing>
+          <coordinates>
+            ${coordenadas.join(" ")}
+          </coordinates>
+        </LinearRing>
+      </outerBoundaryIs>
+    </Polygon>
+  </Placemark>`;
+    });
 
-        // 3. Re-dibujar Polígonos
-        if (datos.poligonos) {
-            datos.poligonos.forEach(p => {
-                const poly = L.polygon(p.coords, { color: '#27ae60', fillColor: '#2ecc71', fillOpacity: 0.3 }).addTo(map);
-                poly.bindTooltip(`Área: ${p.area} m²`, { permanent: true, direction: "center", className: "etiqueta-punto" });
-                historialPoligonos.push({ objeto: poly, area: p.area, id: p.id, marcadores: [] });
-            });
-        }
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>GeoVision Poligonos</name>
+    ${placemarks.join("\n")}
+  </Document>
+</kml>`;
+}
 
-        actualizarListaLineas();
-        actualizarListaPuntos();
-        actualizarListaPoligonos();
-        console.log("Datos cargados desde localStorage.");
+function exportarPoligonosKML() {
+    if (historialPoligonos.length === 0) {
+        alert("No hay poligonos para exportar.");
+        return;
     }
+
+    const contenido = convertirPoligonosAKML();
+    const blob = new Blob([contenido], { type: "application/vnd.google-earth.kml+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const fecha = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    a.href = url;
+    a.download = `geovision-poligonos-${fecha}.kml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
+
 // =========================================================
-// 10. FUNCIÓN DE GUARDADO (LA QUE FALTA)
+// 7. PERSISTENCIA
 // =========================================================
 function guardarEnLocal() {
-    const datosGeo = {
-        mediciones: historialMediciones.map(m => ({
-            coords: m.linea.getLatLngs(),
-            distancia: m.distancia
+    const datos = {
+        mediciones: historialMediciones.map((m) => ({
+            id: m.id,
+            nombre: m.nombre,
+            distancia: m.distancia,
+            coords: m.linea.getLatLngs()
         })),
-        puntosInteres: historialPuntos.map(p => ({
+        poligonos: historialPoligonos.map((p) => ({
+            id: p.id,
+            nombre: p.nombre,
+            coords: p.objeto.getLatLngs()[0]
+        })),
+        puntos: historialPuntos.map((p) => ({
+            id: p.id,
+            nombre: p.nombre,
             lat: p.m.getLatLng().lat,
-            lng: p.m.getLatLng().lng,
-            nota: p.nota
-        }))
+            lng: p.m.getLatLng().lng
+        })),
+        ultimasCoordsReales
     };
-    
-    // Convertimos el objeto a texto y lo guardamos en el navegador
-    localStorage.setItem('geovision_data', JSON.stringify(datosGeo));
-    console.log("💾 Datos guardados en el navegador.");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(datos));
 }
+
+function cargarDesdeLocal() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+
+    let datos;
+    try {
+        datos = JSON.parse(raw);
+    } catch (_e) {
+        return;
+    }
+
+    if (datos.ultimasCoordsReales) {
+        ultimasCoordsReales = datos.ultimasCoordsReales;
+    }
+
+    if (Array.isArray(datos.mediciones)) {
+        datos.mediciones.forEach((m) => {
+            if (!Array.isArray(m.coords) || m.coords.length < 2) return;
+            const linea = L.polyline(m.coords, { color: "#3498db", weight: 3 }).addTo(map);
+            historialMediciones.push({
+                id: m.id || Date.now(),
+                nombre: m.nombre || "Medida",
+                distancia: Number(m.distancia) || map.distance(m.coords[0], m.coords[1]),
+                linea
+            });
+        });
+    }
+
+    if (Array.isArray(datos.poligonos)) {
+        datos.poligonos.forEach((p) => {
+            if (!Array.isArray(p.coords) || p.coords.length < 3) return;
+            const poli = L.polygon(p.coords, { color: "#2ecc71", fillOpacity: 0.3 }).addTo(map);
+            const id = p.id || Date.now();
+            const vertices = [];
+            p.coords.forEach((ll) => {
+                const v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: "vertice-poligono", iconSize: [10, 10] }) }).addTo(map);
+                v.on("drag", () => {
+                    poli.setLatLngs(vertices.map((marker) => marker.getLatLng()));
+                    actualizarInfoPoligono(id);
+                    guardarEnLocal();
+                });
+                vertices.push(v);
+            });
+            historialPoligonos.push({ id, objeto: poli, marcadores: vertices, nombre: p.nombre || "Area", areaTxt: "" });
+            actualizarInfoPoligono(id);
+        });
+    }
+
+    if (Array.isArray(datos.puntos)) {
+        datos.puntos.forEach((p) => {
+            if (typeof p.lat !== "number" || typeof p.lng !== "number") return;
+            agregarPuntoManual({ lat: p.lat, lng: p.lng }, p.nombre || "Punto");
+        });
+    }
+
+    actualizarListaLineas();
+    actualizarListaPoligonos();
+    actualizarListaPuntos();
+}
+
+// =========================================================
+// 8. INICIALIZACION
+// =========================================================
+window.onload = function onLoad() {
+    if (window.L && L.GeometryUtil) {
+        console.log("Geometria cargada.");
+    }
+    document.getElementById("btn-localizar").onclick = localizarUsuario;
+    document.getElementById("btn-borrar-todo").onclick = window.borrarTodoElMapa;
+    document.getElementById("btn-exportar-kml").onclick = exportarPoligonosKML;
+    bindFotoDrone();
+    bindProyeccion();
+    bindClima();
+    bindHerramientas();
+    initMobileBottomSheet();
+    cargarDesdeLocal();
+};

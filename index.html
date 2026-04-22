@@ -21,9 +21,12 @@
             </section>
 
             <aside id="sidebar">
+                <button id="sidebar-handle" class="sheet-handle-btn" aria-label="Expandir o contraer panel">
+                    <span class="sheet-handle-pill"></span>
+                </button>
                 <h2>Panel de Control</h2>
 
-                <button id="btn-localizar">Mi Ubicación</button>
+                <button id="btn-localizar" class="tool-btn">📍 Mi Ubicación</button>
                 <button id="btn-clima-actual" style="background-color: #2980b9; width: 100%; margin-top: 5px;">🌦️ Clima
                     en mi posición</button>
                 <div id="info-clima-actual" style="margin-top: 10px; font-size: 0.8em; color: #ecf0f1;"></div>
@@ -33,7 +36,7 @@
 
                 <h3>Foto Drone</h3>
                 <input type="file" id="input-drone" accept="image/*" style="display: none;">
-                <button id="btn-subir-foto" style="background-color: #f39c12;">Subir Foto de Drone</button>
+                <button id="btn-subir-foto" class="tool-btn tool-btn-warn">🛩️ Subir Foto de Drone</button>
                 <p style="margin: 8px 0 0; font-size: 0.75em; color: #aaa; line-height: 1.35;">
                     Ideal: archivo <strong>DJI_xxxx.JPG</strong> copiado de la tarjeta SD (sin reenviar por WhatsApp ni
                     convertir a PNG). Ahí suele venir el XMP del gimbal.
@@ -57,7 +60,7 @@
                     </p>
                     <p>Rumbo (Heading): <input type="number" id="drone-heading" value="0" style="width: 50px;"> °</p>
                     <p>Altitud de Vuelo: <input type="number" id="manual-alt" value="100" style="width: 50px;"> mts</p>
-                    <button id="btn-proyectar" style="background-color: #e74c3c; width: 100%;">Calcular Punto
+                    <button id="btn-proyectar" class="tool-btn tool-btn-danger" style="width: 100%;">🎯 Calcular Punto
                         Objetivo</button>
                     <div id="resultado-mira" style="margin-top:10px; color: #f1c40f;"></div>
                 </div>
@@ -69,9 +72,9 @@
                     <h4 style="margin-top: 0; color: #3498db;">📐 Herramientas de Medición</h4>
 
                     <div style="display: flex; gap: 5px;">
-                        <button id="btn-regla" style="flex: 1; background-color: #3498db; font-size: 0.8em;">📏 Nueva
+                        <button id="btn-regla" class="tool-btn tool-btn-tool" style="flex: 1; font-size: 0.8em;">📏 Nueva
                             Línea</button>
-                        <button id="btn-poligono" style="flex: 1; background-color: #27ae60; font-size: 0.8em;">📐 Nuevo
+                        <button id="btn-poligono" class="tool-btn tool-btn-tool" style="flex: 1; font-size: 0.8em;">📐 Nuevo
                             Área</button>
                     </div>
 
@@ -91,6 +94,10 @@
                         <ul id="lista-poligonos"
                             style="list-style: none; padding: 0; margin-top:5px; max-height: 120px; overflow-y: auto;">
                         </ul>
+                        <button id="btn-exportar-kml" class="tool-btn"
+                            style="margin-top: 8px; background-color: #16a34a;">
+                            ⬇️ Exportar KML/KMZ
+                        </button>
                     </div>
                 </div>
 
@@ -99,8 +106,8 @@
                 <div id="panel-puntos"
                     style="margin-top: 15px; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444;">
                     <h4 style="margin-top: 0; color: #27ae60;">📍 Puntos de Interés</h4>
-                    <button id="btn-modo-punto"
-                        style="width: 100%; padding: 8px; background: #2c3e50; color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px;">
+                    <button id="btn-modo-punto" class="tool-btn tool-btn-tool"
+                        style="width: 100%; padding: 8px; margin-bottom: 10px;">
                         📍 Marcador Manual: Desactivado
                     </button>
                     <div id="historial-puntos" style="max-height: 150px; overflow-y: auto;">
