@@ -1,7 +1,7 @@
 // =========================================================
 // 1. VARIABLES GLOBALES Y MAPA
 // =========================================================
-let ultimasCoordsReales = { lat: 0, lon: 0 };
+let ultimasCoordsReales = null;
 let modoMedicion = false;
 let modoPoligono = false;
 let modoMarcadoManual = false;
@@ -10,9 +10,17 @@ let marcadoresTemp = [];
 let historialMediciones = [];
 let historialPoligonos = [];
 let historialPuntos = [];
+let historialFotos = [];
+const urlsTemporalesFotos = new Set();
+let capaOrientacionFoto = null;
+let capaVisionCalculada = null;
 
-const WEATHER_API_KEY = "ee2057b73b750d1fae6127e3ce2d091d";
+const WEATHER_API_KEY = window.WEATHER_API_KEY || "";
 const STORAGE_KEY = "geovision_data";
+const AUTH_USERS_KEY = "geovision_auth_users";
+const AUTH_SESSION_KEY = "geovision_auth_session";
+const AUTH_LOCK_KEY = "geovision_auth_lock";
+let currentUserSession = null;
 
 const googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
     maxZoom: 21,
@@ -53,6 +61,531 @@ function normalizarGrados(grados) {
     return ((grados % 360) + 360) % 360;
 }
 
+function esEmailValido(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
+}
+
+async function hashTexto(texto) {
+    const buffer = new TextEncoder().encode(texto);
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function leerUsuariosAuth() {
+    const raw = localStorage.getItem(AUTH_USERS_KEY);
+    if (!raw) return [];
+    try {
+        const users = JSON.parse(raw);
+        return Array.isArray(users) ? users : [];
+    } catch (_e) {
+        return [];
+    }
+}
+
+function guardarUsuariosAuth(users) {
+    localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
+}
+
+function setAuthStatus(msg, isError = false) {
+    const ui = document.getElementById("auth-status");
+    if (!ui) return;
+    ui.innerHTML = msg;
+    ui.style.color = isError ? "#fda4af" : "#94a3b8";
+}
+
+function actualizarEstadoSesionUI() {
+    const overlay = document.getElementById("auth-overlay");
+    const badge = document.getElementById("auth-user-badge");
+    if (!overlay || !badge) return;
+
+    if (currentUserSession && currentUserSession.email) {
+        overlay.classList.add("is-hidden");
+        badge.innerText = currentUserSession.email;
+    } else {
+        overlay.classList.remove("is-hidden");
+        badge.innerText = "Invitado";
+    }
+}
+
+function abrirTabAuth(tipo) {
+    const tabLogin = document.getElementById("tab-login");
+    const tabRegister = document.getElementById("tab-register");
+    const formLogin = document.getElementById("form-login");
+    const formRegister = document.getElementById("form-register");
+    if (!tabLogin || !tabRegister || !formLogin || !formRegister) return;
+
+    const isLogin = tipo === "login";
+    tabLogin.classList.toggle("is-active", isLogin);
+    tabRegister.classList.toggle("is-active", !isLogin);
+    formLogin.classList.toggle("hidden-auth-form", !isLogin);
+    formRegister.classList.toggle("hidden-auth-form", isLogin);
+}
+
+async function asegurarUsuarioDemo() {
+    const users = leerUsuariosAuth();
+    if (users.length > 0) return;
+    const passwordHash = await hashTexto("GeoVision2026!");
+    users.push({
+        id: Date.now(),
+        email: "admin@geovision.app",
+        passwordHash,
+        createdAt: new Date().toISOString()
+    });
+    guardarUsuariosAuth(users);
+}
+
+function guardarSesionAuth(email) {
+    const session = { email, startedAt: new Date().toISOString() };
+    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+    currentUserSession = session;
+    actualizarEstadoSesionUI();
+}
+
+function cerrarSesionAuth() {
+    localStorage.removeItem(AUTH_SESSION_KEY);
+    currentUserSession = null;
+    actualizarEstadoSesionUI();
+    setAuthStatus("Sesión cerrada. Ingresa para continuar.");
+}
+
+async function registrarUsuario(email, password) {
+    const users = leerUsuariosAuth();
+    const emailNormalizado = email.trim().toLowerCase();
+    if (users.some((u) => u.email === emailNormalizado)) {
+        throw new Error("Ese usuario ya existe.");
+    }
+    const passwordHash = await hashTexto(password);
+    users.push({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        email: emailNormalizado,
+        passwordHash,
+        createdAt: new Date().toISOString()
+    });
+    guardarUsuariosAuth(users);
+}
+
+function leerBloqueoAuth() {
+    const raw = localStorage.getItem(AUTH_LOCK_KEY);
+    if (!raw) return null;
+    try {
+        const lock = JSON.parse(raw);
+        if (typeof lock.untilMs !== "number" || typeof lock.attempts !== "number") return null;
+        return lock;
+    } catch (_e) {
+        return null;
+    }
+}
+
+function registrarFalloLogin() {
+    const now = Date.now();
+    const lock = leerBloqueoAuth() || { attempts: 0, untilMs: 0 };
+    lock.attempts += 1;
+    if (lock.attempts >= 5) {
+        lock.untilMs = now + 60 * 1000;
+    }
+    localStorage.setItem(AUTH_LOCK_KEY, JSON.stringify(lock));
+}
+
+function resetBloqueoLogin() {
+    localStorage.removeItem(AUTH_LOCK_KEY);
+}
+
+async function autenticarUsuario(email, password) {
+    const lock = leerBloqueoAuth();
+    const now = Date.now();
+    if (lock && lock.untilMs > now) {
+        const sec = Math.ceil((lock.untilMs - now) / 1000);
+        throw new Error(`Muchos intentos. Espera ${sec}s.`);
+    }
+
+    const users = leerUsuariosAuth();
+    const emailNormalizado = email.trim().toLowerCase();
+    const user = users.find((u) => u.email === emailNormalizado);
+    if (!user) {
+        registrarFalloLogin();
+        throw new Error("Usuario o contraseña incorrectos.");
+    }
+    const passwordHash = await hashTexto(password);
+    if (passwordHash !== user.passwordHash) {
+        registrarFalloLogin();
+        throw new Error("Usuario o contraseña incorrectos.");
+    }
+    resetBloqueoLogin();
+    guardarSesionAuth(user.email);
+}
+
+async function bindAuthUI() {
+    await asegurarUsuarioDemo();
+
+    const btnLogout = document.getElementById("btn-logout");
+    const tabLogin = document.getElementById("tab-login");
+    const tabRegister = document.getElementById("tab-register");
+    const formLogin = document.getElementById("form-login");
+    const formRegister = document.getElementById("form-register");
+    const rawSession = localStorage.getItem(AUTH_SESSION_KEY);
+    if (rawSession) {
+        try {
+            currentUserSession = JSON.parse(rawSession);
+        } catch (_e) {
+            currentUserSession = null;
+        }
+    }
+    actualizarEstadoSesionUI();
+
+    if (btnLogout) {
+        btnLogout.onclick = () => cerrarSesionAuth();
+    }
+    if (tabLogin) tabLogin.onclick = () => abrirTabAuth("login");
+    if (tabRegister) tabRegister.onclick = () => abrirTabAuth("register");
+
+    if (formLogin) {
+        formLogin.onsubmit = async (ev) => {
+            ev.preventDefault();
+            const email = document.getElementById("login-email").value;
+            const password = document.getElementById("login-password").value;
+            if (!esEmailValido(email)) {
+                setAuthStatus("Ingresa un email válido.", true);
+                return;
+            }
+            if (!password || password.length < 8) {
+                setAuthStatus("La contraseña debe tener al menos 8 caracteres.", true);
+                return;
+            }
+            try {
+                await autenticarUsuario(email, password);
+                setAuthStatus(`Bienvenido, ${email.trim().toLowerCase()}.`);
+            } catch (err) {
+                setAuthStatus(err.message || "No se pudo iniciar sesión.", true);
+            }
+        };
+    }
+
+    if (formRegister) {
+        formRegister.onsubmit = async (ev) => {
+            ev.preventDefault();
+            const email = document.getElementById("register-email").value;
+            const password = document.getElementById("register-password").value;
+            const repeat = document.getElementById("register-password-repeat").value;
+            if (!esEmailValido(email)) {
+                setAuthStatus("Email inválido para registro.", true);
+                return;
+            }
+            if (!password || password.length < 8) {
+                setAuthStatus("Usa una contraseña de al menos 8 caracteres.", true);
+                return;
+            }
+            if (password !== repeat) {
+                setAuthStatus("Las contraseñas no coinciden.", true);
+                return;
+            }
+            try {
+                await registrarUsuario(email, password);
+                setAuthStatus("Cuenta creada. Ahora puedes iniciar sesión.");
+                abrirTabAuth("login");
+                document.getElementById("login-email").value = email.trim().toLowerCase();
+                document.getElementById("login-password").value = "";
+            } catch (err) {
+                setAuthStatus(err.message || "No se pudo registrar el usuario.", true);
+            }
+        };
+    }
+}
+
+function normalizarClave(tag) {
+    return String(tag || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+}
+
+function parseNumero(valor) {
+    if (typeof valor === "number" && Number.isFinite(valor)) return valor;
+    if (typeof valor !== "string") return null;
+    const match = valor.replace(",", ".").match(/-?\d+(\.\d+)?/);
+    if (!match) return null;
+    const parsed = Number.parseFloat(match[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function recolectarCamposNumericos(origen) {
+    const out = {};
+    if (!origen || typeof origen !== "object") return out;
+    const stack = [origen];
+    while (stack.length > 0) {
+        const actual = stack.pop();
+        if (!actual || typeof actual !== "object") continue;
+        Object.entries(actual).forEach(([k, v]) => {
+            if (v && typeof v === "object") {
+                stack.push(v);
+                return;
+            }
+            const numero = parseNumero(v);
+            if (numero === null) return;
+            const key = normalizarClave(k);
+            if (!(key in out)) out[key] = numero;
+        });
+    }
+    return out;
+}
+
+function obtenerPrimerCampo(campos, candidatos) {
+    for (const candidato of candidatos) {
+        const key = normalizarClave(candidato);
+        if (key in campos) return campos[key];
+    }
+    return null;
+}
+
+function extraerTelemetria(data) {
+    const campos = recolectarCamposNumericos(data);
+    return {
+        pitch: obtenerPrimerCampo(campos, [
+            "GimbalPitchDegree", "FlightPitchDegree", "CameraPitch", "GimbalPitch", "Pitch"
+        ]),
+        yaw: obtenerPrimerCampo(campos, [
+            "FlightYawDegree", "GimbalYawDegree", "DroneYawDegree", "GPSImgDirection", "Heading", "Yaw"
+        ]),
+        alt: obtenerPrimerCampo(campos, [
+            "RelativeAltitude", "AbsoluteAltitude", "GPSAltitude", "Altitude", "DroneAltitude"
+        ])
+    };
+}
+
+function formatearCoords(lat, lon) {
+    return `${decimalADMS(lat, true)} | ${decimalADMS(lon, false)}`;
+}
+
+function crearIconoFlecha(grados, color = "#f59e0b", size = 24) {
+    return L.divIcon({
+        className: "icono-flecha-direccion",
+        html: `<div style="font-size:${size}px; line-height:1; color:${color}; transform: rotate(${grados}deg); text-shadow: 0 1px 2px rgba(0,0,0,0.8);">➤</div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2]
+    });
+}
+
+function limpiarCapaOrientacionFoto() {
+    if (!capaOrientacionFoto) return;
+    map.removeLayer(capaOrientacionFoto);
+    capaOrientacionFoto = null;
+}
+
+function limpiarVisionCalculada() {
+    if (!capaVisionCalculada) return;
+    map.removeLayer(capaVisionCalculada);
+    capaVisionCalculada = null;
+}
+
+function mostrarOrientacionFoto(lat, lon, yaw) {
+    limpiarCapaOrientacionFoto();
+    if (!Number.isFinite(yaw)) return;
+    const rumbo = normalizarGrados(yaw);
+    const frente = proyectar(lat, lon, 120, rumbo);
+    const linea = L.polyline(
+        [
+            [lat, lon],
+            [frente.lat, frente.lon]
+        ],
+        { color: "#f59e0b", weight: 3, opacity: 0.95 }
+    ).bindTooltip(`Rumbo foto: ${rumbo.toFixed(0)}°`, { direction: "top" });
+    const flecha = L.marker([frente.lat, frente.lon], { icon: crearIconoFlecha(rumbo, "#f59e0b", 22) });
+    capaOrientacionFoto = L.layerGroup([linea, flecha]).addTo(map);
+    map.flyToBounds(
+        [
+            [lat, lon],
+            [frente.lat, frente.lon]
+        ],
+        { padding: [70, 70], maxZoom: 19 }
+    );
+}
+
+function mostrarLineaVision(origen, destino, rumbo) {
+    limpiarVisionCalculada();
+    const distancia = map.distance([origen.lat, origen.lon], [destino.lat, destino.lon]);
+    const puntoFlecha = proyectar(origen.lat, origen.lon, distancia * 0.72, rumbo);
+
+    const linea = L.polyline(
+        [
+            [origen.lat, origen.lon],
+            [destino.lat, destino.lon]
+        ],
+        { color: "#db4a34", weight: 4, dashArray: "5,10", opacity: 1 }
+    );
+    const flecha = L.marker([puntoFlecha.lat, puntoFlecha.lon], { icon: crearIconoFlecha(rumbo, "#db4a34", 24) })
+        .bindTooltip("Direccion de vision", { direction: "top" });
+
+    capaVisionCalculada = L.layerGroup([linea, flecha]).addTo(map);
+}
+
+function generarTextoTooltipFoto(foto) {
+    return `<b>${foto.nombre}</b><br>${formatearCoords(foto.lat, foto.lon)}`;
+}
+
+function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
+    if (!foto) return;
+    ultimasCoordsReales = { lat: foto.lat, lon: foto.lon };
+    if (typeof foto.pitch === "number") document.getElementById("gimbal-pitch").value = Math.abs(foto.pitch).toFixed(1);
+    if (typeof foto.yaw === "number") document.getElementById("drone-heading").value = normalizarGrados(foto.yaw).toFixed(0);
+    if (typeof foto.alt === "number") document.getElementById("manual-alt").value = Math.abs(foto.alt).toFixed(0);
+
+    if (typeof foto.yaw === "number") mostrarOrientacionFoto(foto.lat, foto.lon, foto.yaw);
+    else if (enfocarMapa) map.flyTo([foto.lat, foto.lon], 19);
+
+    document.getElementById("resultado-mira").innerHTML = `Foto seleccionada: <strong>${foto.nombre}</strong>`;
+    if (foto.marcador && enfocarMapa) foto.marcador.openPopup();
+}
+
+function crearMarcadorFoto(foto, fotoURL) {
+    const marker = L.marker([foto.lat, foto.lon], { icon: droneIcon }).addTo(map);
+    marker.bindTooltip(generarTextoTooltipFoto(foto), {
+        direction: "top",
+        className: "etiqueta-punto"
+    });
+
+    const htmlPopup = fotoURL
+        ? `<div style="text-align:center; min-width: 300px;">
+                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
+                <img src="${fotoURL}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" onclick="window.open('${fotoURL}', '_blank')">
+                <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa para ver imagen completa</p>
+            </div>`
+        : `<div style="text-align:center;">
+                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
+                <p style="font-size: 12px; color: #ecf0f1; margin:0;">
+                    ${foto.nombre}<br>${formatearCoords(foto.lat, foto.lon)}
+                </p>
+            </div>`;
+
+    marker.bindPopup(htmlPopup, { maxWidth: 360, className: "popup-drone-grande" });
+    return marker;
+}
+
+function borrarFotoPorId(id) {
+    const index = historialFotos.findIndex((f) => f.id === id);
+    if (index === -1) return;
+    const foto = historialFotos[index];
+    if (foto.marcador) map.removeLayer(foto.marcador);
+    if (foto.fotoURL && urlsTemporalesFotos.has(foto.fotoURL)) {
+        URL.revokeObjectURL(foto.fotoURL);
+        urlsTemporalesFotos.delete(foto.fotoURL);
+    }
+    historialFotos.splice(index, 1);
+    if (historialFotos.length > 0) {
+        ultimasCoordsReales = { lat: historialFotos[0].lat, lon: historialFotos[0].lon };
+    } else {
+        ultimasCoordsReales = null;
+        limpiarCapaOrientacionFoto();
+    }
+    actualizarListaFotos();
+    guardarEnLocal();
+}
+
+function actualizarListaFotos() {
+    const ui = document.getElementById("lista-fotos");
+    if (!ui) return;
+    ui.innerHTML = "";
+
+    historialFotos.forEach((foto) => {
+        const li = document.createElement("li");
+        li.style.cssText = "border-bottom:1px solid #444; padding:6px 4px; color:#ecf0f1; font-size:0.8em; cursor:pointer;";
+        li.title = formatearCoords(foto.lat, foto.lon);
+
+        const nombre = document.createElement("div");
+        nombre.style.cssText = "color:#f1c40f; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+        nombre.innerText = foto.nombre;
+
+        const meta = document.createElement("small");
+        meta.style.cssText = "display:block; color:#95a5a6;";
+        meta.innerText = `Lat ${foto.lat.toFixed(6)} | Lon ${foto.lon.toFixed(6)}`;
+
+        li.addEventListener("mouseenter", () => {
+            if (foto.marcador) foto.marcador.openTooltip();
+        });
+        li.addEventListener("mouseleave", () => {
+            if (foto.marcador) foto.marcador.closeTooltip();
+        });
+        li.addEventListener("click", () => {
+            if (!foto.marcador) return;
+            map.flyTo([foto.lat, foto.lon], 19);
+            foto.marcador.openPopup();
+        });
+
+        const acciones = document.createElement("div");
+        acciones.style.cssText = "display:flex; justify-content:space-between; gap:8px; align-items:center; margin-top:4px;";
+
+        const btnBorrar = document.createElement("button");
+        btnBorrar.type = "button";
+        btnBorrar.innerText = "🗑️ Borrar";
+        btnBorrar.style.cssText = "width:auto; margin:0; padding:3px 8px; font-size:0.72em; background:#7f1d1d; border-radius:6px;";
+        btnBorrar.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            borrarFotoPorId(foto.id);
+        });
+
+        const btnUsar = document.createElement("button");
+        btnUsar.type = "button";
+        btnUsar.innerText = "🎯 Usar";
+        btnUsar.style.cssText = "width:auto; margin:0; padding:3px 8px; font-size:0.72em; background:#1d4ed8; border-radius:6px;";
+        btnUsar.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            seleccionarFotoParaCalculo(foto, true);
+        });
+
+        const accionesBotones = document.createElement("div");
+        accionesBotones.style.cssText = "display:flex; gap:6px;";
+        accionesBotones.appendChild(btnUsar);
+        accionesBotones.appendChild(btnBorrar);
+
+        acciones.appendChild(meta);
+        acciones.appendChild(accionesBotones);
+
+        li.appendChild(nombre);
+        li.appendChild(acciones);
+        ui.appendChild(li);
+    });
+}
+
+function agregarFotoHistorial(fotoData, fotoURL) {
+    const marker = crearMarcadorFoto(fotoData, fotoURL);
+    const foto = {
+        ...fotoData,
+        fotoURL: fotoURL || null,
+        marcador: marker
+    };
+    historialFotos.unshift(foto);
+    actualizarListaFotos();
+    guardarEnLocal();
+    return foto;
+}
+
+function limpiarFotos() {
+    historialFotos.forEach((foto) => {
+        if (foto.marcador) map.removeLayer(foto.marcador);
+    });
+    historialFotos = [];
+    ultimasCoordsReales = null;
+    limpiarCapaOrientacionFoto();
+    urlsTemporalesFotos.forEach((url) => URL.revokeObjectURL(url));
+    urlsTemporalesFotos.clear();
+    actualizarListaFotos();
+}
+
+function actualizarDebugExif(data, telemetria, faltantes) {
+    const ui = document.getElementById("debug-exif-contenido");
+    if (!ui) return;
+
+    const campos = recolectarCamposNumericos(data);
+    const claves = Object.keys(campos).sort().slice(0, 30);
+    const lineas = [
+        `pitch: ${telemetria.pitch !== null ? telemetria.pitch : "N/A"}`,
+        `heading: ${telemetria.yaw !== null ? telemetria.yaw : "N/A"}`,
+        `altitud: ${telemetria.alt !== null ? telemetria.alt : "N/A"}`,
+        `faltantes: ${faltantes.length ? faltantes.join(", ") : "ninguno"}`,
+        "",
+        "Campos numericos detectados (primeros 30):",
+        ...claves.map((k) => `- ${k}: ${campos[k]}`)
+    ];
+    ui.textContent = lineas.join("\n");
+}
+
 function proyectar(lat, lon, dist, rumbo) {
     const R = 6371000;
     const r = (rumbo * Math.PI) / 180;
@@ -80,6 +613,11 @@ function actualizarEstadoImportacion(tipo, detalle) {
     estadoDiv.innerHTML = `Estado: <strong>${estilo.label}</strong>${detalle ? `<br><small>${detalle}</small>` : ""}`;
 }
 
+function limpiarMarcadoresTemporales() {
+    marcadoresTemp.forEach((m) => map.removeLayer(m));
+    marcadoresTemp = [];
+}
+
 // =========================================================
 // 3. TELEMETRIA, CLIMA Y PROYECCION
 // =========================================================
@@ -98,39 +636,62 @@ function bindFotoDrone() {
         actualizarEstadoImportacion("waiting", `Analizando ${file.name}...`);
 
         try {
-            const data = await exifr.parse(file, { gps: true, xmp: true, multiSegment: true });
+            const data = await exifr.parse(file, {
+                gps: true,
+                xmp: true,
+                exif: true,
+                tiff: true,
+                ifd0: true,
+                multiSegment: true
+            });
+            const telemetria = extraerTelemetria(data);
+            const faltantes = [];
+            if (telemetria.pitch === null) faltantes.push("pitch");
+            if (telemetria.yaw === null) faltantes.push("heading");
+            if (telemetria.alt === null) faltantes.push("altitud");
+            actualizarDebugExif(data, telemetria, faltantes);
+
             if (!data || typeof data.latitude !== "number" || typeof data.longitude !== "number") {
                 throw new Error("La foto no tiene coordenadas GPS.");
             }
 
             ultimasCoordsReales = { lat: data.latitude, lon: data.longitude };
             const fotoURL = URL.createObjectURL(file);
-            const pitch = data.GimbalPitchDegree ?? data.FlightPitchDegree ?? 0;
-            const yaw = data.FlightYawDegree ?? data.GimbalYawDegree ?? 0;
-            const alt = data.RelativeAltitude ?? data.AbsoluteAltitude ?? 0;
+            urlsTemporalesFotos.add(fotoURL);
 
-            document.getElementById("gimbal-pitch").value = Math.abs(pitch).toFixed(1);
-            document.getElementById("drone-heading").value = normalizarGrados(yaw).toFixed(0);
-            document.getElementById("manual-alt").value = Math.abs(alt).toFixed(0);
+            if (telemetria.pitch !== null) document.getElementById("gimbal-pitch").value = Math.abs(telemetria.pitch).toFixed(1);
+            if (telemetria.yaw !== null) document.getElementById("drone-heading").value = normalizarGrados(telemetria.yaw).toFixed(0);
+            if (telemetria.alt !== null) document.getElementById("manual-alt").value = Math.abs(telemetria.alt).toFixed(0);
 
             document.getElementById("telemetria-drone").innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}`;
 
             if (btnClimaVuelo) btnClimaVuelo.style.display = "block";
 
-            L.marker([data.latitude, data.longitude], { icon: droneIcon })
-                .addTo(map)
-                .bindPopup(
-                    `<div style="text-align:center; min-width: 300px;">
-                        <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
-                        <img src="${fotoURL}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" onclick="window.open('${fotoURL}', '_blank')">
-                        <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa para ver imagen completa</p>
-                    </div>`,
-                    { maxWidth: 360, className: "popup-drone-grande" }
-                )
-                .openPopup();
-
-            map.flyTo([data.latitude, data.longitude], 19);
-            actualizarEstadoImportacion("ok", "Telemetria de vuelo cargada");
+            const foto = agregarFotoHistorial(
+                {
+                    id: Date.now() + Math.floor(Math.random() * 1000),
+                    nombre: file.name,
+                    lat: data.latitude,
+                    lon: data.longitude,
+                    fecha: new Date().toISOString(),
+                    pitch: telemetria.pitch,
+                    yaw: telemetria.yaw,
+                    alt: telemetria.alt
+                },
+                fotoURL
+            );
+            foto.marcador.openPopup();
+            if (telemetria.yaw !== null) {
+                mostrarOrientacionFoto(data.latitude, data.longitude, telemetria.yaw);
+            } else {
+                limpiarCapaOrientacionFoto();
+                map.flyTo([data.latitude, data.longitude], 19);
+            }
+            if (faltantes.length === 0) {
+                actualizarEstadoImportacion("ok", "Telemetria de vuelo cargada");
+            } else {
+                actualizarEstadoImportacion("ok", `GPS cargado; no se encontro: ${faltantes.join(", ")}`);
+            }
         } catch (err) {
             const msg = err && err.message ? err.message : "No se pudo leer metadatos de la foto.";
             actualizarEstadoImportacion("error", msg);
@@ -140,17 +701,33 @@ function bindFotoDrone() {
 }
 
 function bindProyeccion() {
-    document.getElementById("btn-proyectar").onclick = () => {
-        if (ultimasCoordsReales.lat === 0 && ultimasCoordsReales.lon === 0) {
+    const btnProyectar = document.getElementById("btn-proyectar");
+    const inputAltitud = document.getElementById("manual-alt");
+    const inputPitch = document.getElementById("gimbal-pitch");
+    const inputHeading = document.getElementById("drone-heading");
+    const calcularObjetivo = () => {
+        if (!ultimasCoordsReales) {
             alert("Primero debes subir una foto del drone.");
             return;
         }
 
-        const alt = parseFloat(document.getElementById("manual-alt").value);
-        const pitchOriginal = parseFloat(document.getElementById("gimbal-pitch").value);
-        const head = parseFloat(document.getElementById("drone-heading").value);
-        if (Number.isNaN(alt) || Number.isNaN(pitchOriginal) || Number.isNaN(head)) {
-            alert("Completa Altitud, Pitch y Heading con numeros validos.");
+        const inputAlt = document.getElementById("manual-alt").value.trim();
+        const inputPitch = document.getElementById("gimbal-pitch").value.trim();
+        const inputHead = document.getElementById("drone-heading").value.trim();
+        if (!inputAlt || !inputPitch || !inputHead) {
+            alert("No se puede calcular: completa pitch del gimbal, rumbo y altitud.");
+            return;
+        }
+
+        const alt = parseFloat(inputAlt);
+        const pitchOriginal = parseFloat(inputPitch);
+        const head = parseFloat(inputHead);
+        if (!Number.isFinite(alt) || !Number.isFinite(pitchOriginal) || !Number.isFinite(head)) {
+            alert("No se puede calcular: los datos del gimbal, rumbo y altura deben ser numericos.");
+            return;
+        }
+        if (alt <= 0) {
+            alert("No se puede calcular: la altitud debe ser mayor a 0.");
             return;
         }
 
@@ -161,7 +738,8 @@ function bindProyeccion() {
             distH = alt * Math.tan(anguloVerticalRad);
         }
 
-        const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, head);
+        const rumbo = normalizarGrados(head);
+        const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, rumbo);
 
         L.marker([obj.lat, obj.lon], { icon: iconoMira })
             .addTo(map)
@@ -175,17 +753,26 @@ function bindProyeccion() {
             )
             .openPopup();
 
-        L.polyline(
-            [
-                [ultimasCoordsReales.lat, ultimasCoordsReales.lon],
-                [obj.lat, obj.lon]
-            ],
-            { color: "#db4a34", weight: 4, dashArray: "5,10", opacity: 1 }
-        ).addTo(map);
+        mostrarLineaVision(
+            { lat: ultimasCoordsReales.lat, lon: ultimasCoordsReales.lon },
+            { lat: obj.lat, lon: obj.lon },
+            rumbo
+        );
 
         document.getElementById("resultado-mira").innerHTML = `Objetivo a ${distH.toFixed(1)} m`;
         map.flyTo([obj.lat, obj.lon], 19);
     };
+
+    btnProyectar.onclick = calcularObjetivo;
+
+    [inputAltitud, inputPitch, inputHeading].forEach((input) => {
+        if (!input) return;
+        input.addEventListener("keydown", (ev) => {
+            if (ev.key !== "Enter") return;
+            ev.preventDefault();
+            calcularObjetivo();
+        });
+    });
 }
 
 function renderClima(infoDiv, data, color) {
@@ -204,6 +791,10 @@ function renderClima(infoDiv, data, color) {
 function bindClima() {
     document.getElementById("btn-clima-actual").onclick = () => {
         const infoDiv = document.getElementById("info-clima-actual");
+        if (!WEATHER_API_KEY) {
+            infoDiv.innerText = "Configura window.WEATHER_API_KEY para usar clima.";
+            return;
+        }
         infoDiv.innerText = "Obteniendo clima local...";
         navigator.geolocation.getCurrentPosition(async (p) => {
             try {
@@ -221,8 +812,12 @@ function bindClima() {
     const btnClimaVuelo = document.getElementById("btn-clima");
     if (!btnClimaVuelo) return;
     btnClimaVuelo.onclick = async () => {
-        if (!ultimasCoordsReales.lat && !ultimasCoordsReales.lon) return;
+        if (!ultimasCoordsReales) return;
         const infoDiv = document.getElementById("info-clima");
+        if (!WEATHER_API_KEY) {
+            infoDiv.innerText = "Configura window.WEATHER_API_KEY para usar clima.";
+            return;
+        }
         infoDiv.innerText = "Consultando clima del vuelo...";
         try {
             const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${ultimasCoordsReales.lat}&lon=${ultimasCoordsReales.lon}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
@@ -289,8 +884,20 @@ function actualizarListaPuntos() {
     historialPuntos.forEach((p) => {
         const li = document.createElement("li");
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
-        li.innerHTML = `<input type="text" value="${p.nombre}" onchange="cambiarNombrePunto(${p.id}, this.value)" style="background:none; border:1px solid #555; color:#fff; width:110px; font-size:0.8em;">
-            <button onclick="borrarPunto(${p.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = p.nombre;
+        input.style.cssText = "background:none; border:1px solid #555; color:#fff; width:110px; font-size:0.8em;";
+        input.addEventListener("change", () => window.cambiarNombrePunto(p.id, input.value));
+
+        const boton = document.createElement("button");
+        boton.type = "button";
+        boton.innerText = "🗑️";
+        boton.style.cssText = "background:none; color:red; border:none; cursor:pointer;";
+        boton.addEventListener("click", () => window.borrarPunto(p.id));
+
+        li.appendChild(input);
+        li.appendChild(boton);
         ui.appendChild(li);
     });
 }
@@ -305,11 +912,27 @@ function actualizarListaLineas() {
 
         const li = document.createElement("li");
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
-        li.innerHTML = `<div style="display:flex; flex-direction:column;">
-                <input type="text" value="${m.nombre}" onchange="cambiarNombreLinea(${m.id}, this.value)" style="background:none; border:1px solid #555; color:#3498db; width:100px; font-size:0.8em;">
-                <small style="color:#aaa;">${txt}</small>
-            </div>
-            <button onclick="borrarLinea(${m.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
+        const cont = document.createElement("div");
+        cont.style.cssText = "display:flex; flex-direction:column;";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = m.nombre;
+        input.style.cssText = "background:none; border:1px solid #555; color:#3498db; width:100px; font-size:0.8em;";
+        input.addEventListener("change", () => window.cambiarNombreLinea(m.id, input.value));
+        const meta = document.createElement("small");
+        meta.style.color = "#aaa";
+        meta.innerText = txt;
+        cont.appendChild(input);
+        cont.appendChild(meta);
+
+        const boton = document.createElement("button");
+        boton.type = "button";
+        boton.innerText = "🗑️";
+        boton.style.cssText = "background:none; color:red; border:none; cursor:pointer;";
+        boton.addEventListener("click", () => window.borrarLinea(m.id));
+
+        li.appendChild(cont);
+        li.appendChild(boton);
         ui.appendChild(li);
     });
 }
@@ -339,11 +962,27 @@ function actualizarListaPoligonos() {
     historialPoligonos.forEach((x) => {
         const li = document.createElement("li");
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
-        li.innerHTML = `<div style="display:flex; flex-direction:column;">
-                <input type="text" value="${x.nombre}" onchange="cambiarNombrePoligono(${x.id}, this.value)" style="background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;">
-                <small style="color:#aaa;">${x.areaTxt || "---"}</small>
-            </div>
-            <button onclick="borrarPoligono(${x.id})" style="background:none; color:red; border:none; cursor:pointer;">🗑️</button>`;
+        const cont = document.createElement("div");
+        cont.style.cssText = "display:flex; flex-direction:column;";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = x.nombre;
+        input.style.cssText = "background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;";
+        input.addEventListener("change", () => window.cambiarNombrePoligono(x.id, input.value));
+        const meta = document.createElement("small");
+        meta.style.color = "#aaa";
+        meta.innerText = x.areaTxt || "---";
+        cont.appendChild(input);
+        cont.appendChild(meta);
+
+        const boton = document.createElement("button");
+        boton.type = "button";
+        boton.innerText = "🗑️";
+        boton.style.cssText = "background:none; color:red; border:none; cursor:pointer;";
+        boton.addEventListener("click", () => window.borrarPoligono(x.id));
+
+        li.appendChild(cont);
+        li.appendChild(boton);
         ui.appendChild(li);
     });
 }
@@ -365,6 +1004,7 @@ function bindHerramientas() {
         modoPoligono = false;
         modoMarcadoManual = false;
         puntosTemp = [];
+        limpiarMarcadoresTemporales();
         refrescarEstadoHerramientas();
     };
 
@@ -373,8 +1013,7 @@ function bindHerramientas() {
         modoMedicion = false;
         modoMarcadoManual = false;
         puntosTemp = [];
-        marcadoresTemp.forEach((m) => map.removeLayer(m));
-        marcadoresTemp = [];
+        limpiarMarcadoresTemporales();
         refrescarEstadoHerramientas();
     };
 
@@ -383,6 +1022,7 @@ function bindHerramientas() {
         modoMedicion = false;
         modoPoligono = false;
         puntosTemp = [];
+        limpiarMarcadoresTemporales();
         refrescarEstadoHerramientas();
     };
 
@@ -394,7 +1034,7 @@ function bindHerramientas() {
 
         if (modoMedicion) {
             puntosTemp.push(e.latlng);
-            L.circleMarker(e.latlng, { radius: 4 }).addTo(map);
+            marcadoresTemp.push(L.circleMarker(e.latlng, { radius: 4 }).addTo(map));
             if (puntosTemp.length === 2) {
                 const distancia = map.distance(puntosTemp[0], puntosTemp[1]);
                 const id = Date.now();
@@ -402,6 +1042,7 @@ function bindHerramientas() {
                 historialMediciones.push({ id, linea, distancia, nombre: `Medida ${historialMediciones.length + 1}` });
                 actualizarListaLineas();
                 guardarEnLocal();
+                limpiarMarcadoresTemporales();
                 puntosTemp = [];
                 modoMedicion = false;
                 refrescarEstadoHerramientas();
@@ -442,8 +1083,7 @@ function bindHerramientas() {
         guardarEnLocal();
 
         puntosTemp = [];
-        marcadoresTemp.forEach((m) => map.removeLayer(m));
-        marcadoresTemp = [];
+        limpiarMarcadoresTemporales();
         modoPoligono = false;
         refrescarEstadoHerramientas();
     });
@@ -454,6 +1094,7 @@ function bindHerramientas() {
 function initMobileBottomSheet() {
     const sidebar = document.getElementById("sidebar");
     const handle = document.getElementById("sidebar-handle");
+    const handleLabel = document.getElementById("sidebar-handle-label");
     if (!sidebar || !handle) return;
 
     const mq = window.matchMedia("(max-width: 768px)");
@@ -464,6 +1105,14 @@ function initMobileBottomSheet() {
         stateIndex = Math.max(0, Math.min(indice, states.length - 1));
         states.forEach((s) => sidebar.classList.remove(s));
         sidebar.classList.add(states[stateIndex]);
+        if (handleLabel) {
+            const etiquetas = [
+                "Desliza arriba para abrir",
+                "Panel medio (toca o desliza)",
+                "Panel completo - desliza abajo"
+            ];
+            handleLabel.innerText = etiquetas[stateIndex];
+        }
     }
 
     function resetDesktop() {
@@ -473,7 +1122,7 @@ function initMobileBottomSheet() {
     }
 
     function activarMobile() {
-        aplicarEstado(1);
+        aplicarEstado(0);
     }
 
     function aplicarModoActual() {
@@ -508,9 +1157,9 @@ function initMobileBottomSheet() {
         dragging = false;
         sidebar.classList.remove("sheet-dragging");
         const deltaY = currentY - startY;
-        if (deltaY < -40) {
+        if (deltaY < -28) {
             aplicarEstado(stateIndex + 1);
-        } else if (deltaY > 40) {
+        } else if (deltaY > 28) {
             aplicarEstado(stateIndex - 1);
         } else {
             aplicarEstado(stateIndex);
@@ -590,16 +1239,20 @@ window.borrarTodoElMapa = () => {
         p.marcadores.forEach((v) => map.removeLayer(v));
     });
     historialPuntos.forEach((p) => map.removeLayer(p.m));
-    marcadoresTemp.forEach((m) => map.removeLayer(m));
+    limpiarMarcadoresTemporales();
+    limpiarFotos();
     historialMediciones = [];
     historialPoligonos = [];
     historialPuntos = [];
-    marcadoresTemp = [];
     puntosTemp = [];
     actualizarListaLineas();
     actualizarListaPoligonos();
     actualizarListaPuntos();
     guardarEnLocal();
+};
+
+window.borrarFoto = (id) => {
+    borrarFotoPorId(id);
 };
 
 // =========================================================
@@ -688,6 +1341,16 @@ function guardarEnLocal() {
             lat: p.m.getLatLng().lat,
             lng: p.m.getLatLng().lng
         })),
+        fotos: historialFotos.map((f) => ({
+            id: f.id,
+            nombre: f.nombre,
+            lat: f.lat,
+            lon: f.lon,
+            fecha: f.fecha,
+            pitch: f.pitch,
+            yaw: f.yaw,
+            alt: f.alt
+        })),
         ultimasCoordsReales
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(datos));
@@ -748,15 +1411,32 @@ function cargarDesdeLocal() {
         });
     }
 
+    if (Array.isArray(datos.fotos)) {
+        datos.fotos.forEach((f) => {
+            if (typeof f.lat !== "number" || typeof f.lon !== "number") return;
+            agregarFotoHistorial({
+                id: f.id || Date.now(),
+                nombre: f.nombre || "Foto",
+                lat: f.lat,
+                lon: f.lon,
+                fecha: f.fecha || new Date().toISOString(),
+                pitch: typeof f.pitch === "number" ? f.pitch : null,
+                yaw: typeof f.yaw === "number" ? f.yaw : null,
+                alt: typeof f.alt === "number" ? f.alt : null
+            });
+        });
+    }
+
     actualizarListaLineas();
     actualizarListaPoligonos();
     actualizarListaPuntos();
+    actualizarListaFotos();
 }
 
 // =========================================================
 // 8. INICIALIZACION
 // =========================================================
-window.onload = function onLoad() {
+window.onload = async function onLoad() {
     if (window.L && L.GeometryUtil) {
         console.log("Geometria cargada.");
     }
@@ -769,4 +1449,5 @@ window.onload = function onLoad() {
     bindHerramientas();
     initMobileBottomSheet();
     cargarDesdeLocal();
+    await bindAuthUI();
 };

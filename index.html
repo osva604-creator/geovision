@@ -10,9 +10,47 @@
 </head>
 
 <body>
+    <div id="auth-overlay" class="auth-overlay">
+        <div class="auth-card">
+            <div class="auth-brand">
+                <h2>GeoVision Secure</h2>
+                <p>Ingreso protegido para operaciones de vuelo.</p>
+            </div>
+
+            <div class="auth-tabs">
+                <button id="tab-login" class="auth-tab-btn is-active" type="button">Iniciar sesión</button>
+                <button id="tab-register" class="auth-tab-btn" type="button">Registrarse</button>
+            </div>
+
+            <form id="form-login" class="auth-form">
+                <label>Email</label>
+                <input id="login-email" type="email" placeholder="operador@geovision.app" required>
+                <label>Contraseña</label>
+                <input id="login-password" type="password" placeholder="••••••••" required>
+                <button id="btn-login" type="submit" class="auth-primary-btn">Entrar</button>
+            </form>
+
+            <form id="form-register" class="auth-form hidden-auth-form">
+                <label>Email</label>
+                <input id="register-email" type="email" placeholder="nuevo@geovision.app" required>
+                <label>Contraseña</label>
+                <input id="register-password" type="password" placeholder="Min. 8 caracteres" required>
+                <label>Repetir contraseña</label>
+                <input id="register-password-repeat" type="password" placeholder="Repite contraseña" required>
+                <button id="btn-register" type="submit" class="auth-primary-btn">Crear cuenta</button>
+            </form>
+
+            <p id="auth-status" class="auth-status">Usuario demo: <strong>admin@geovision.app</strong> / <strong>GeoVision2026!</strong></p>
+        </div>
+    </div>
+
     <div id="app-container">
         <header>
             <h1>GeoVision 2026</h1>
+            <div class="header-auth">
+                <span id="auth-user-badge">Invitado</span>
+                <button id="btn-logout" type="button">Cerrar sesión</button>
+            </div>
         </header>
 
         <main>
@@ -21,8 +59,9 @@
             </section>
 
             <aside id="sidebar">
-                <button id="sidebar-handle" class="sheet-handle-btn" aria-label="Expandir o contraer panel">
+                <button id="sidebar-handle" class="sheet-handle-btn" aria-label="Expandir o contraer panel movil">
                     <span class="sheet-handle-pill"></span>
+                    <span id="sidebar-handle-label" class="sheet-handle-label">Desliza arriba para abrir</span>
                 </button>
                 <h2>Panel de Control</h2>
 
@@ -46,6 +85,18 @@
                     Estado: esperando foto
                 </div>
                 <div id="telemetria-drone" style="margin-top: 10px; font-size: 0.8em; color: #f1c40f;"></div>
+                <details style="margin-top: 8px; background: #1f2937; border: 1px solid #374151; border-radius: 5px; padding: 6px;">
+                    <summary style="cursor: pointer; color: #93c5fd; font-size: 0.8em;">🧪 Debug EXIF/XMP</summary>
+                    <pre id="debug-exif-contenido"
+                        style="margin-top: 8px; white-space: pre-wrap; max-height: 180px; overflow: auto; font-size: 0.72em; color: #cbd5e1;">Sube una foto para ver campos detectados.</pre>
+                </details>
+
+                <div style="margin-top: 10px;">
+                    <small style="color: #f1c40f; font-weight: bold;">Historial de fotos:</small>
+                    <ul id="lista-fotos"
+                        style="list-style: none; padding: 0; margin-top:5px; max-height: 140px; overflow-y: auto; border: 1px solid #374151; border-radius: 6px;">
+                    </ul>
+                </div>
 
                 <button id="btn-clima"
                     style="background-color: #34495e; width: 100%; margin-top: 5px; display: none;">🌦️ Ver Clima del
