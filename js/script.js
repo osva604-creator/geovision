@@ -14,6 +14,8 @@ let historialFotos = [];
 const urlsTemporalesFotos = new Set();
 let capaOrientacionFoto = null;
 let capaVisionCalculada = null;
+let orientacionMapaActiva = true;
+let deferredInstallPrompt = null;
 
 const WEATHER_API_KEY = window.WEATHER_API_KEY || "";
 const STORAGE_KEY = "geovision_data";
@@ -57,6 +59,12 @@ function normalizarGrados(grados) {
     return ((grados % 360) + 360) % 360;
 }
 
+function aplicarRotacionMapa(grados) {
+    const mapEl = map.getContainer();
+    mapEl.classList.toggle("mapa-rotado", Math.abs(grados) > 0.1);
+    mapEl.style.setProperty("--map-rotation", `${grados.toFixed(2)}deg`);
+}
+
 function normalizarClave(tag) {
     return String(tag || "")
         .toLowerCase()
@@ -65,6 +73,20 @@ function normalizarClave(tag) {
 
 function parseNumero(valor) {
     if (typeof valor === "number" && Number.isFinite(valor)) return valor;
+    if (Array.isArray(valor)) {
+        for (const item of valor) {
+            const n = parseNumero(item);
+            if (n !== null) return n;
+        }
+        return null;
+    }
+    if (valor && typeof valor === "object") {
+        if (typeof valor.numerator === "number" && typeof valor.denominator === "number" && valor.denominator !== 0) {
+            return valor.numerator / valor.denominator;
+        }
+        if ("value" in valor) return parseNumero(valor.value);
+        return null;
+    }
     if (typeof valor !== "string") return null;
     const match = valor.replace(",", ".").match(/-?\d+(\.\d+)?/);
     if (!match) return null;
@@ -94,9 +116,12 @@ function recolectarCamposNumericos(origen) {
 }
 
 function obtenerPrimerCampo(campos, candidatos) {
+    const claves = Object.keys(campos);
     for (const candidato of candidatos) {
         const key = normalizarClave(candidato);
         if (key in campos) return campos[key];
+        const encontrada = claves.find((k) => k.endsWith(key) || k.includes(key));
+        if (encontrada) return campos[encontrada];
     }
     return null;
 }
@@ -105,13 +130,16 @@ function extraerTelemetria(data) {
     const campos = recolectarCamposNumericos(data);
     return {
         pitch: obtenerPrimerCampo(campos, [
-            "GimbalPitchDegree", "FlightPitchDegree", "CameraPitch", "GimbalPitch", "Pitch"
+            "GimbalPitchDegree", "FlightPitchDegree", "CameraPitch", "GimbalPitch", "Pitch",
+            "drone-dji:GimbalPitchDegree", "drone-dji:FlightPitchDegree"
         ]),
         yaw: obtenerPrimerCampo(campos, [
-            "FlightYawDegree", "GimbalYawDegree", "DroneYawDegree", "GPSImgDirection", "Heading", "Yaw"
+            "FlightYawDegree", "GimbalYawDegree", "DroneYawDegree", "GPSImgDirection", "Heading", "Yaw",
+            "drone-dji:FlightYawDegree", "drone-dji:GimbalYawDegree"
         ]),
         alt: obtenerPrimerCampo(campos, [
-            "RelativeAltitude", "AbsoluteAltitude", "GPSAltitude", "Altitude", "DroneAltitude"
+            "RelativeAltitude", "AbsoluteAltitude", "GPSAltitude", "Altitude", "DroneAltitude",
+            "drone-dji:RelativeAltitude", "drone-dji:AbsoluteAltitude"
         ])
     };
 }
@@ -121,9 +149,10 @@ function formatearCoords(lat, lon) {
 }
 
 function crearIconoFlecha(grados, color = "#f59e0b", size = 24) {
+    const anguloCss = normalizarGrados(grados - 90);
     return L.divIcon({
         className: "icono-flecha-direccion",
-        html: `<div style="font-size:${size}px; line-height:1; color:${color}; transform: rotate(${grados}deg); text-shadow: 0 1px 2px rgba(0,0,0,0.8);">➤</div>`,
+        html: `<div style="font-size:${size}px; line-height:1; color:${color}; transform: rotate(${anguloCss}deg); text-shadow: 0 1px 2px rgba(0,0,0,0.8);">➤</div>`,
         iconSize: [size, size],
         iconAnchor: [size / 2, size / 2]
     });
@@ -155,6 +184,7 @@ function mostrarOrientacionFoto(lat, lon, yaw) {
     ).bindTooltip(`Rumbo foto: ${rumbo.toFixed(0)}°`, { direction: "top" });
     const flecha = L.marker([frente.lat, frente.lon], { icon: crearIconoFlecha(rumbo, "#f59e0b", 22) });
     capaOrientacionFoto = L.layerGroup([linea, flecha]).addTo(map);
+    if (orientacionMapaActiva) aplicarRotacionMapa(rumbo);
     map.flyToBounds(
         [
             [lat, lon],
@@ -162,6 +192,50 @@ function mostrarOrientacionFoto(lat, lon, yaw) {
         ],
         { padding: [70, 70], maxZoom: 19 }
     );
+}
+
+function actualizarBotonOrientacion() {
+    const btn = document.getElementById("btn-toggle-orientacion");
+    if (!btn) return;
+    btn.innerText = orientacionMapaActiva ? "🧭 Rotacion mapa: ACTIVA" : "🧭 Rotacion mapa: DESACTIVADA";
+}
+
+function bindOrientacionToggle() {
+    const btn = document.getElementById("btn-toggle-orientacion");
+    if (!btn) return;
+    actualizarBotonOrientacion();
+    btn.onclick = () => {
+        orientacionMapaActiva = !orientacionMapaActiva;
+        if (!orientacionMapaActiva) aplicarRotacionMapa(0);
+        else if (historialFotos[0] && typeof historialFotos[0].yaw === "number") aplicarRotacionMapa(normalizarGrados(historialFotos[0].yaw));
+        actualizarBotonOrientacion();
+    };
+}
+
+function bindInstalacionApp() {
+    const btn = document.getElementById("btn-instalar-app");
+    const info = document.getElementById("info-instalacion");
+    if (!btn || !info) return;
+    btn.style.display = "none";
+
+    window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        btn.style.display = "block";
+        info.innerText = "La app esta lista para instalar.";
+    });
+
+    btn.onclick = async () => {
+        if (!deferredInstallPrompt) {
+            info.innerText = "En iPhone usa Compartir > Agregar a pantalla de inicio.";
+            return;
+        }
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        info.innerText = choice.outcome === "accepted" ? "Instalacion iniciada." : "Instalacion cancelada.";
+        deferredInstallPrompt = null;
+        btn.style.display = "none";
+    };
 }
 
 function mostrarLineaVision(origen, destino, rumbo) {
@@ -193,8 +267,12 @@ function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
     if (typeof foto.yaw === "number") document.getElementById("drone-heading").value = normalizarGrados(foto.yaw).toFixed(0);
     if (typeof foto.alt === "number") document.getElementById("manual-alt").value = Math.abs(foto.alt).toFixed(0);
 
-    if (typeof foto.yaw === "number") mostrarOrientacionFoto(foto.lat, foto.lon, foto.yaw);
-    else if (enfocarMapa) map.flyTo([foto.lat, foto.lon], 19);
+    if (typeof foto.yaw === "number") {
+        mostrarOrientacionFoto(foto.lat, foto.lon, foto.yaw);
+    } else {
+        aplicarRotacionMapa(0);
+        if (enfocarMapa) map.flyTo([foto.lat, foto.lon], 19);
+    }
 
     document.getElementById("resultado-mira").innerHTML = `Foto seleccionada: <strong>${foto.nombre}</strong>`;
     if (foto.marcador && enfocarMapa) foto.marcador.openPopup();
@@ -329,9 +407,19 @@ function limpiarFotos() {
     historialFotos = [];
     ultimasCoordsReales = null;
     limpiarCapaOrientacionFoto();
+    aplicarRotacionMapa(0);
     urlsTemporalesFotos.forEach((url) => URL.revokeObjectURL(url));
     urlsTemporalesFotos.clear();
     actualizarListaFotos();
+}
+
+function iniciarSplash() {
+    const splash = document.getElementById("splash-screen");
+    if (!splash) return;
+    setTimeout(() => {
+        splash.classList.add("is-hidden");
+        setTimeout(() => splash.remove(), 520);
+    }, 2000);
 }
 
 function actualizarDebugExif(data, telemetria, faltantes) {
@@ -451,6 +539,7 @@ function bindFotoDrone() {
                 mostrarOrientacionFoto(data.latitude, data.longitude, telemetria.yaw);
             } else {
                 limpiarCapaOrientacionFoto();
+                aplicarRotacionMapa(0);
                 map.flyTo([data.latitude, data.longitude], 19);
             }
             if (faltantes.length === 0) {
@@ -859,87 +948,38 @@ function bindHerramientas() {
 
 function initMobileBottomSheet() {
     const sidebar = document.getElementById("sidebar");
-    const handle = document.getElementById("sidebar-handle");
-    const handleLabel = document.getElementById("sidebar-handle-label");
-    if (!sidebar || !handle) return;
+    const btnControles = document.getElementById("btn-mobile-controles");
+    if (!sidebar || !btnControles) return;
 
     const mq = window.matchMedia("(max-width: 768px)");
-    const states = ["sheet-collapsed", "sheet-half", "sheet-full"];
-    let stateIndex = 0;
+    let abierto = false;
 
-    function aplicarEstado(indice) {
-        stateIndex = Math.max(0, Math.min(indice, states.length - 1));
-        states.forEach((s) => sidebar.classList.remove(s));
-        sidebar.classList.add(states[stateIndex]);
-        if (handleLabel) {
-            const etiquetas = [
-                "Desliza arriba para abrir",
-                "Panel medio (toca o desliza)",
-                "Panel completo - desliza abajo"
-            ];
-            handleLabel.innerText = etiquetas[stateIndex];
+    function aplicarEstado() {
+        if (!mq.matches) {
+            sidebar.classList.remove("mobile-open");
+            btnControles.style.display = "none";
+            return;
         }
+        btnControles.style.display = "block";
+        sidebar.classList.toggle("mobile-open", abierto);
+        btnControles.innerText = abierto ? "Cerrar controles" : "Controles";
     }
 
-    function resetDesktop() {
-        states.forEach((s) => sidebar.classList.remove(s));
-        sidebar.classList.remove("sheet-dragging");
-        sidebar.style.transform = "";
-    }
-
-    function activarMobile() {
-        aplicarEstado(0);
-    }
-
-    function aplicarModoActual() {
-        if (mq.matches) activarMobile();
-        else resetDesktop();
-    }
-
-    handle.onclick = () => {
-        if (!mq.matches) return;
-        aplicarEstado((stateIndex + 1) % states.length);
+    btnControles.onclick = () => {
+        abierto = !abierto;
+        aplicarEstado();
     };
 
-    let startY = 0;
-    let currentY = 0;
-    let dragging = false;
+    map.on("click", () => {
+        if (!mq.matches || !abierto) return;
+        abierto = false;
+        aplicarEstado();
+    });
 
-    function onTouchStart(e) {
-        if (!mq.matches) return;
-        dragging = true;
-        startY = e.touches[0].clientY;
-        currentY = startY;
-        sidebar.classList.add("sheet-dragging");
-    }
+    if (mq.addEventListener) mq.addEventListener("change", aplicarEstado);
+    else mq.addListener(aplicarEstado);
 
-    function onTouchMove(e) {
-        if (!dragging || !mq.matches) return;
-        currentY = e.touches[0].clientY;
-    }
-
-    function onTouchEnd() {
-        if (!dragging || !mq.matches) return;
-        dragging = false;
-        sidebar.classList.remove("sheet-dragging");
-        const deltaY = currentY - startY;
-        if (deltaY < -28) {
-            aplicarEstado(stateIndex + 1);
-        } else if (deltaY > 28) {
-            aplicarEstado(stateIndex - 1);
-        } else {
-            aplicarEstado(stateIndex);
-        }
-    }
-
-    handle.addEventListener("touchstart", onTouchStart, { passive: true });
-    handle.addEventListener("touchmove", onTouchMove, { passive: true });
-    handle.addEventListener("touchend", onTouchEnd, { passive: true });
-
-    if (mq.addEventListener) mq.addEventListener("change", aplicarModoActual);
-    else mq.addListener(aplicarModoActual);
-
-    aplicarModoActual();
+    aplicarEstado();
 }
 
 // =========================================================
@@ -1197,6 +1237,9 @@ function cargarDesdeLocal() {
     actualizarListaPoligonos();
     actualizarListaPuntos();
     actualizarListaFotos();
+    if (historialFotos[0] && typeof historialFotos[0].yaw === "number" && orientacionMapaActiva) {
+        aplicarRotacionMapa(normalizarGrados(historialFotos[0].yaw));
+    }
 }
 
 // =========================================================
@@ -1209,10 +1252,13 @@ window.onload = function onLoad() {
     document.getElementById("btn-localizar").onclick = localizarUsuario;
     document.getElementById("btn-borrar-todo").onclick = window.borrarTodoElMapa;
     document.getElementById("btn-exportar-kml").onclick = exportarPoligonosKML;
+    bindInstalacionApp();
+    bindOrientacionToggle();
     bindFotoDrone();
     bindProyeccion();
     bindClima();
     bindHerramientas();
     initMobileBottomSheet();
     cargarDesdeLocal();
+    iniciarSplash();
 };

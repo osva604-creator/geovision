@@ -5,11 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GeoVision 2026</title>
+    <meta name="theme-color" content="#123524">
+    <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="css/style.css">
 </head>
 
 <body>
+    <div id="splash-screen">
+        <img src="assets/splash-cana.png" alt="Cana de azucar">
+        <div id="splash-title">GEO_VISION</div>
+    </div>
     <div id="app-container">
         <header>
             <h1>GeoVision 2026</h1>
@@ -19,13 +25,12 @@
             <section id="map-container">
                 <div id="map"></div>
             </section>
+            <button id="btn-mobile-controles" type="button">Controles</button>
 
             <aside id="sidebar">
-                <button id="sidebar-handle" class="sheet-handle-btn" aria-label="Expandir o contraer panel movil">
-                    <span class="sheet-handle-pill"></span>
-                    <span id="sidebar-handle-label" class="sheet-handle-label">Desliza arriba para abrir</span>
-                </button>
                 <h2>Panel de Control</h2>
+                <button id="btn-instalar-app" class="tool-btn">⬇️ Instalar App</button>
+                <small id="info-instalacion">Instalable en movil y escritorio cuando el navegador lo permita.</small>
 
                 <button id="btn-localizar" class="tool-btn">📍 Mi Ubicación</button>
                 <button id="btn-clima-actual" style="background-color: #2980b9; width: 100%; margin-top: 5px;">🌦️ Clima
@@ -38,6 +43,7 @@
                 <h3>Foto Drone</h3>
                 <input type="file" id="input-drone" accept="image/*" style="display: none;">
                 <button id="btn-subir-foto" class="tool-btn tool-btn-warn">🛩️ Subir Foto de Drone</button>
+                <button id="btn-toggle-orientacion" class="tool-btn tool-btn-tool">🧭 Rotacion mapa: ACTIVA</button>
                 <p style="margin: 8px 0 0; font-size: 0.75em; color: #aaa; line-height: 1.35;">
                     Ideal: archivo <strong>DJI_xxxx.JPG</strong> copiado de la tarjeta SD (sin reenviar por WhatsApp ni
                     convertir a PNG). Ahí suele venir el XMP del gimbal.
@@ -47,11 +53,6 @@
                     Estado: esperando foto
                 </div>
                 <div id="telemetria-drone" style="margin-top: 10px; font-size: 0.8em; color: #f1c40f;"></div>
-                <details style="margin-top: 8px; background: #1f2937; border: 1px solid #374151; border-radius: 5px; padding: 6px;">
-                    <summary style="cursor: pointer; color: #93c5fd; font-size: 0.8em;">🧪 Debug EXIF/XMP</summary>
-                    <pre id="debug-exif-contenido"
-                        style="margin-top: 8px; white-space: pre-wrap; max-height: 180px; overflow: auto; font-size: 0.72em; color: #cbd5e1;">Sube una foto para ver campos detectados.</pre>
-                </details>
 
                 <div style="margin-top: 10px;">
                     <small style="color: #f1c40f; font-weight: bold;">Historial de fotos:</small>

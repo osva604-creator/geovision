@@ -1,10 +1,11 @@
 {
   "name": "GeoVision 2026",
   "short_name": "GeoVision",
-  "start_url": "index.html",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#1a1a1a",
-  "theme_color": "#0078d4",
+  "background_color": "#0f1c14",
+  "theme_color": "#123524",
   "icons": [
     {
       "src": "https://cdn-icons-png.flaticon.com/512/252/252025.png",
