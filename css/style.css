@@ -60,12 +60,6 @@ main {
     display: flex;
     height: 100%;
     width: 100%;
-    transition: transform 0.35s ease;
-    transform-origin: center center;
-}
-
-#map.mapa-rotado {
-    transform: rotate(var(--map-rotation, 0deg));
 }
 
 #sidebar {
@@ -157,6 +151,54 @@ button:hover {
 
 #btn-mobile-controles {
     display: none;
+}
+
+#install-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%) translateY(20px);
+    opacity: 0;
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(11, 35, 27, 0.88);
+    backdrop-filter: blur(10px);
+    color: var(--text-main);
+    z-index: 1500;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+#install-toast.show {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+}
+
+#btn-install-toast {
+    width: auto;
+    margin: 0;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+}
+
+.gv-compass {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(10, 36, 28, 0.92);
+    border: 1px solid rgba(180, 239, 206, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #d9ffe9;
+    font-weight: 700;
+    font-size: 0.88rem;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 #lista-puntos li:hover,
@@ -290,6 +332,13 @@ button:hover {
     #lista-fotos button {
         width: auto !important;
         padding: 8px 10px !important;
+        margin-bottom: 0 !important;
+        font-size: 0.78rem !important;
+    }
+
+    #btn-install-toast {
+        width: auto !important;
+        padding: 6px 10px !important;
         margin-bottom: 0 !important;
         font-size: 0.78rem !important;
     }

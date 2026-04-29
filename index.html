@@ -25,8 +25,6 @@
 
             <aside id="sidebar">
                 <h2>Panel de Control</h2>
-                <button id="btn-instalar-app" class="tool-btn">⬇️ Instalar App</button>
-                <small id="info-instalacion">Instalable en movil y escritorio cuando el navegador lo permita.</small>
 
                 <button id="btn-localizar" class="tool-btn">📍 Mi Ubicación</button>
                 <button id="btn-clima-actual" style="background-color: #2980b9; width: 100%; margin-top: 5px;">🌦️ Clima
@@ -39,7 +37,6 @@
                 <h3>Foto Drone</h3>
                 <input type="file" id="input-drone" accept="image/*" style="display: none;">
                 <button id="btn-subir-foto" class="tool-btn tool-btn-warn">🛩️ Subir Foto de Drone</button>
-                <button id="btn-toggle-orientacion" class="tool-btn tool-btn-tool">🧭 Rotacion mapa: ACTIVA</button>
                 <p style="margin: 8px 0 0; font-size: 0.75em; color: #aaa; line-height: 1.35;">
                     Ideal: archivo <strong>DJI_xxxx.JPG</strong> copiado de la tarjeta SD (sin reenviar por WhatsApp ni
                     convertir a PNG). Ahí suele venir el XMP del gimbal.
@@ -127,6 +124,10 @@
                 </div>
             </aside>
         </main>
+    </div>
+    <div id="install-toast" class="install-toast">
+        <span>Instalar GeoVision para uso offline</span>
+        <button id="btn-install-toast" type="button">Instalar</button>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

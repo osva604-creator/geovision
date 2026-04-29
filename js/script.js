@@ -14,10 +14,9 @@ let historialFotos = [];
 const urlsTemporalesFotos = new Set();
 let capaOrientacionFoto = null;
 let capaVisionCalculada = null;
-let orientacionMapaActiva = true;
 let deferredInstallPrompt = null;
 
-const WEATHER_API_KEY = window.WEATHER_API_KEY || "";
+const WEATHER_API_KEY = window.WEATHER_API_KEY || "ee2057b73b750d1fae6127e3ce2d091d";
 const STORAGE_KEY = "geovision_data";
 
 const googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
@@ -59,12 +58,6 @@ function normalizarGrados(grados) {
     return ((grados % 360) + 360) % 360;
 }
 
-function aplicarRotacionMapa(grados) {
-    const mapEl = map.getContainer();
-    mapEl.classList.toggle("mapa-rotado", Math.abs(grados) > 0.1);
-    mapEl.style.setProperty("--map-rotation", `${grados.toFixed(2)}deg`);
-}
-
 function normalizarClave(tag) {
     return String(tag || "")
         .toLowerCase()
@@ -102,14 +95,15 @@ function recolectarCamposNumericos(origen) {
         const actual = stack.pop();
         if (!actual || typeof actual !== "object") continue;
         Object.entries(actual).forEach(([k, v]) => {
+            const numero = parseNumero(v);
+            if (numero !== null) {
+                const key = normalizarClave(k);
+                if (!(key in out)) out[key] = numero;
+            }
             if (v && typeof v === "object") {
                 stack.push(v);
                 return;
             }
-            const numero = parseNumero(v);
-            if (numero === null) return;
-            const key = normalizarClave(k);
-            if (!(key in out)) out[key] = numero;
         });
     }
     return out;
@@ -131,7 +125,8 @@ function extraerTelemetria(data) {
     return {
         pitch: obtenerPrimerCampo(campos, [
             "GimbalPitchDegree", "FlightPitchDegree", "CameraPitch", "GimbalPitch", "Pitch",
-            "drone-dji:GimbalPitchDegree", "drone-dji:FlightPitchDegree"
+            "drone-dji:GimbalPitchDegree", "drone-dji:FlightPitchDegree", "GimbalDegree",
+            "gimbalrollpitchyaw", "camera:gimbalpitchdegree"
         ]),
         yaw: obtenerPrimerCampo(campos, [
             "FlightYawDegree", "GimbalYawDegree", "DroneYawDegree", "GPSImgDirection", "Heading", "Yaw",
@@ -184,7 +179,6 @@ function mostrarOrientacionFoto(lat, lon, yaw) {
     ).bindTooltip(`Rumbo foto: ${rumbo.toFixed(0)}°`, { direction: "top" });
     const flecha = L.marker([frente.lat, frente.lon], { icon: crearIconoFlecha(rumbo, "#f59e0b", 22) });
     capaOrientacionFoto = L.layerGroup([linea, flecha]).addTo(map);
-    if (orientacionMapaActiva) aplicarRotacionMapa(rumbo);
     map.flyToBounds(
         [
             [lat, lon],
@@ -194,48 +188,50 @@ function mostrarOrientacionFoto(lat, lon, yaw) {
     );
 }
 
-function actualizarBotonOrientacion() {
-    const btn = document.getElementById("btn-toggle-orientacion");
-    if (!btn) return;
-    btn.innerText = orientacionMapaActiva ? "🧭 Rotacion mapa: ACTIVA" : "🧭 Rotacion mapa: DESACTIVADA";
-}
-
-function bindOrientacionToggle() {
-    const btn = document.getElementById("btn-toggle-orientacion");
-    if (!btn) return;
-    actualizarBotonOrientacion();
-    btn.onclick = () => {
-        orientacionMapaActiva = !orientacionMapaActiva;
-        if (!orientacionMapaActiva) aplicarRotacionMapa(0);
-        else if (historialFotos[0] && typeof historialFotos[0].yaw === "number") aplicarRotacionMapa(normalizarGrados(historialFotos[0].yaw));
-        actualizarBotonOrientacion();
-    };
-}
-
 function bindInstalacionApp() {
-    const btn = document.getElementById("btn-instalar-app");
-    const info = document.getElementById("info-instalacion");
-    if (!btn || !info) return;
-    btn.style.display = "none";
+    const toast = document.getElementById("install-toast");
+    const btn = document.getElementById("btn-install-toast");
+    if (!toast || !btn) return;
+
+    function mostrarToast(ms = 2000) {
+        toast.classList.add("show");
+        window.setTimeout(() => toast.classList.remove("show"), ms);
+    }
 
     window.addEventListener("beforeinstallprompt", (event) => {
         event.preventDefault();
         deferredInstallPrompt = event;
-        btn.style.display = "block";
-        info.innerText = "La app esta lista para instalar.";
+        mostrarToast(2000);
+    });
+
+    window.addEventListener("appinstalled", () => {
+        deferredInstallPrompt = null;
+        toast.classList.remove("show");
     });
 
     btn.onclick = async () => {
         if (!deferredInstallPrompt) {
-            info.innerText = "En iPhone usa Compartir > Agregar a pantalla de inicio.";
+            toast.classList.remove("show");
             return;
         }
         deferredInstallPrompt.prompt();
-        const choice = await deferredInstallPrompt.userChoice;
-        info.innerText = choice.outcome === "accepted" ? "Instalacion iniciada." : "Instalacion cancelada.";
+        await deferredInstallPrompt.userChoice;
         deferredInstallPrompt = null;
-        btn.style.display = "none";
+        toast.classList.remove("show");
     };
+}
+
+function addCompassControl() {
+    const CompassControl = L.Control.extend({
+        options: { position: "topright" },
+        onAdd() {
+            const container = L.DomUtil.create("div", "leaflet-bar gv-compass");
+            container.innerHTML = "<span>N</span>";
+            L.DomEvent.disableClickPropagation(container);
+            return container;
+        }
+    });
+    map.addControl(new CompassControl());
 }
 
 function mostrarLineaVision(origen, destino, rumbo) {
@@ -270,7 +266,6 @@ function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
     if (typeof foto.yaw === "number") {
         mostrarOrientacionFoto(foto.lat, foto.lon, foto.yaw);
     } else {
-        aplicarRotacionMapa(0);
         if (enfocarMapa) map.flyTo([foto.lat, foto.lon], 19);
     }
 
@@ -407,7 +402,6 @@ function limpiarFotos() {
     historialFotos = [];
     ultimasCoordsReales = null;
     limpiarCapaOrientacionFoto();
-    aplicarRotacionMapa(0);
     urlsTemporalesFotos.forEach((url) => URL.revokeObjectURL(url));
     urlsTemporalesFotos.clear();
     actualizarListaFotos();
@@ -530,7 +524,6 @@ function bindFotoDrone() {
                 mostrarOrientacionFoto(data.latitude, data.longitude, telemetria.yaw);
             } else {
                 limpiarCapaOrientacionFoto();
-                aplicarRotacionMapa(0);
                 map.flyTo([data.latitude, data.longitude], 19);
             }
             if (faltantes.length === 0) {
@@ -622,6 +615,10 @@ function bindProyeccion() {
 }
 
 function renderClima(infoDiv, data, color) {
+    if (!data || !data.main || !data.wind || !Array.isArray(data.weather) || data.weather.length === 0) {
+        infoDiv.innerText = "No se pudo interpretar la respuesta del clima.";
+        return;
+    }
     const temp = data.main.temp;
     const viento = data.wind.speed * 3.6;
     const humedad = data.main.humidity;
@@ -637,18 +634,17 @@ function renderClima(infoDiv, data, color) {
 function bindClima() {
     document.getElementById("btn-clima-actual").onclick = () => {
         const infoDiv = document.getElementById("info-clima-actual");
-        if (!WEATHER_API_KEY) {
-            infoDiv.innerText = "Configura window.WEATHER_API_KEY para usar clima.";
-            return;
-        }
         infoDiv.innerText = "Obteniendo clima local...";
         navigator.geolocation.getCurrentPosition(async (p) => {
             try {
                 const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${p.coords.latitude}&lon=${p.coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
                 const data = await resp.json();
+                if (!resp.ok || (data && Number(data.cod) >= 400)) {
+                    throw new Error(data && data.message ? data.message : "Error de servicio");
+                }
                 renderClima(infoDiv, data, "#2980b9");
-            } catch (_e) {
-                infoDiv.innerText = "Error al obtener clima local.";
+            } catch (e) {
+                infoDiv.innerText = `Error al obtener clima local: ${e.message || "sin detalle"}.`;
             }
         }, () => {
             infoDiv.innerText = "No se pudo obtener GPS local.";
@@ -660,17 +656,16 @@ function bindClima() {
     btnClimaVuelo.onclick = async () => {
         if (!ultimasCoordsReales) return;
         const infoDiv = document.getElementById("info-clima");
-        if (!WEATHER_API_KEY) {
-            infoDiv.innerText = "Configura window.WEATHER_API_KEY para usar clima.";
-            return;
-        }
         infoDiv.innerText = "Consultando clima del vuelo...";
         try {
             const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${ultimasCoordsReales.lat}&lon=${ultimasCoordsReales.lon}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
             const data = await resp.json();
+            if (!resp.ok || (data && Number(data.cod) >= 400)) {
+                throw new Error(data && data.message ? data.message : "Error de servicio");
+            }
             renderClima(infoDiv, data, "#3498db");
-        } catch (_e) {
-            infoDiv.innerText = "Error al obtener clima del vuelo.";
+        } catch (e) {
+            infoDiv.innerText = `Error al obtener clima del vuelo: ${e.message || "sin detalle"}.`;
         }
     };
 }
@@ -1228,9 +1223,6 @@ function cargarDesdeLocal() {
     actualizarListaPoligonos();
     actualizarListaPuntos();
     actualizarListaFotos();
-    if (historialFotos[0] && typeof historialFotos[0].yaw === "number" && orientacionMapaActiva) {
-        aplicarRotacionMapa(normalizarGrados(historialFotos[0].yaw));
-    }
 }
 
 // =========================================================
@@ -1244,7 +1236,7 @@ window.onload = function onLoad() {
     document.getElementById("btn-borrar-todo").onclick = window.borrarTodoElMapa;
     document.getElementById("btn-exportar-kml").onclick = exportarPoligonosKML;
     bindInstalacionApp();
-    bindOrientacionToggle();
+    addCompassControl();
     bindFotoDrone();
     bindProyeccion();
     bindClima();
