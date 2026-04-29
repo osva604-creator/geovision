@@ -10,47 +10,9 @@
 </head>
 
 <body>
-    <div id="auth-overlay" class="auth-overlay">
-        <div class="auth-card">
-            <div class="auth-brand">
-                <h2>GeoVision Secure</h2>
-                <p>Ingreso protegido para operaciones de vuelo.</p>
-            </div>
-
-            <div class="auth-tabs">
-                <button id="tab-login" class="auth-tab-btn is-active" type="button">Iniciar sesión</button>
-                <button id="tab-register" class="auth-tab-btn" type="button">Registrarse</button>
-            </div>
-
-            <form id="form-login" class="auth-form">
-                <label>Email</label>
-                <input id="login-email" type="email" placeholder="operador@geovision.app" required>
-                <label>Contraseña</label>
-                <input id="login-password" type="password" placeholder="••••••••" required>
-                <button id="btn-login" type="submit" class="auth-primary-btn">Entrar</button>
-            </form>
-
-            <form id="form-register" class="auth-form hidden-auth-form">
-                <label>Email</label>
-                <input id="register-email" type="email" placeholder="nuevo@geovision.app" required>
-                <label>Contraseña</label>
-                <input id="register-password" type="password" placeholder="Min. 8 caracteres" required>
-                <label>Repetir contraseña</label>
-                <input id="register-password-repeat" type="password" placeholder="Repite contraseña" required>
-                <button id="btn-register" type="submit" class="auth-primary-btn">Crear cuenta</button>
-            </form>
-
-            <p id="auth-status" class="auth-status">Usuario demo: <strong>admin@geovision.app</strong> / <strong>GeoVision2026!</strong></p>
-        </div>
-    </div>
-
     <div id="app-container">
         <header>
             <h1>GeoVision 2026</h1>
-            <div class="header-auth">
-                <span id="auth-user-badge">Invitado</span>
-                <button id="btn-logout" type="button">Cerrar sesión</button>
-            </div>
         </header>
 
         <main>

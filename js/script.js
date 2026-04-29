@@ -17,10 +17,6 @@ let capaVisionCalculada = null;
 
 const WEATHER_API_KEY = window.WEATHER_API_KEY || "";
 const STORAGE_KEY = "geovision_data";
-const AUTH_USERS_KEY = "geovision_auth_users";
-const AUTH_SESSION_KEY = "geovision_auth_session";
-const AUTH_LOCK_KEY = "geovision_auth_lock";
-let currentUserSession = null;
 
 const googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
     maxZoom: 21,
@@ -59,236 +55,6 @@ function decimalADMS(d, esLat) {
 
 function normalizarGrados(grados) {
     return ((grados % 360) + 360) % 360;
-}
-
-function esEmailValido(email) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
-}
-
-async function hashTexto(texto) {
-    const buffer = new TextEncoder().encode(texto);
-    const digest = await crypto.subtle.digest("SHA-256", buffer);
-    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function leerUsuariosAuth() {
-    const raw = localStorage.getItem(AUTH_USERS_KEY);
-    if (!raw) return [];
-    try {
-        const users = JSON.parse(raw);
-        return Array.isArray(users) ? users : [];
-    } catch (_e) {
-        return [];
-    }
-}
-
-function guardarUsuariosAuth(users) {
-    localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
-}
-
-function setAuthStatus(msg, isError = false) {
-    const ui = document.getElementById("auth-status");
-    if (!ui) return;
-    ui.innerHTML = msg;
-    ui.style.color = isError ? "#fda4af" : "#94a3b8";
-}
-
-function actualizarEstadoSesionUI() {
-    const overlay = document.getElementById("auth-overlay");
-    const badge = document.getElementById("auth-user-badge");
-    if (!overlay || !badge) return;
-
-    if (currentUserSession && currentUserSession.email) {
-        overlay.classList.add("is-hidden");
-        badge.innerText = currentUserSession.email;
-    } else {
-        overlay.classList.remove("is-hidden");
-        badge.innerText = "Invitado";
-    }
-}
-
-function abrirTabAuth(tipo) {
-    const tabLogin = document.getElementById("tab-login");
-    const tabRegister = document.getElementById("tab-register");
-    const formLogin = document.getElementById("form-login");
-    const formRegister = document.getElementById("form-register");
-    if (!tabLogin || !tabRegister || !formLogin || !formRegister) return;
-
-    const isLogin = tipo === "login";
-    tabLogin.classList.toggle("is-active", isLogin);
-    tabRegister.classList.toggle("is-active", !isLogin);
-    formLogin.classList.toggle("hidden-auth-form", !isLogin);
-    formRegister.classList.toggle("hidden-auth-form", isLogin);
-}
-
-async function asegurarUsuarioDemo() {
-    const users = leerUsuariosAuth();
-    if (users.length > 0) return;
-    const passwordHash = await hashTexto("GeoVision2026!");
-    users.push({
-        id: Date.now(),
-        email: "admin@geovision.app",
-        passwordHash,
-        createdAt: new Date().toISOString()
-    });
-    guardarUsuariosAuth(users);
-}
-
-function guardarSesionAuth(email) {
-    const session = { email, startedAt: new Date().toISOString() };
-    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
-    currentUserSession = session;
-    actualizarEstadoSesionUI();
-}
-
-function cerrarSesionAuth() {
-    localStorage.removeItem(AUTH_SESSION_KEY);
-    currentUserSession = null;
-    actualizarEstadoSesionUI();
-    setAuthStatus("Sesión cerrada. Ingresa para continuar.");
-}
-
-async function registrarUsuario(email, password) {
-    const users = leerUsuariosAuth();
-    const emailNormalizado = email.trim().toLowerCase();
-    if (users.some((u) => u.email === emailNormalizado)) {
-        throw new Error("Ese usuario ya existe.");
-    }
-    const passwordHash = await hashTexto(password);
-    users.push({
-        id: Date.now() + Math.floor(Math.random() * 1000),
-        email: emailNormalizado,
-        passwordHash,
-        createdAt: new Date().toISOString()
-    });
-    guardarUsuariosAuth(users);
-}
-
-function leerBloqueoAuth() {
-    const raw = localStorage.getItem(AUTH_LOCK_KEY);
-    if (!raw) return null;
-    try {
-        const lock = JSON.parse(raw);
-        if (typeof lock.untilMs !== "number" || typeof lock.attempts !== "number") return null;
-        return lock;
-    } catch (_e) {
-        return null;
-    }
-}
-
-function registrarFalloLogin() {
-    const now = Date.now();
-    const lock = leerBloqueoAuth() || { attempts: 0, untilMs: 0 };
-    lock.attempts += 1;
-    if (lock.attempts >= 5) {
-        lock.untilMs = now + 60 * 1000;
-    }
-    localStorage.setItem(AUTH_LOCK_KEY, JSON.stringify(lock));
-}
-
-function resetBloqueoLogin() {
-    localStorage.removeItem(AUTH_LOCK_KEY);
-}
-
-async function autenticarUsuario(email, password) {
-    const lock = leerBloqueoAuth();
-    const now = Date.now();
-    if (lock && lock.untilMs > now) {
-        const sec = Math.ceil((lock.untilMs - now) / 1000);
-        throw new Error(`Muchos intentos. Espera ${sec}s.`);
-    }
-
-    const users = leerUsuariosAuth();
-    const emailNormalizado = email.trim().toLowerCase();
-    const user = users.find((u) => u.email === emailNormalizado);
-    if (!user) {
-        registrarFalloLogin();
-        throw new Error("Usuario o contraseña incorrectos.");
-    }
-    const passwordHash = await hashTexto(password);
-    if (passwordHash !== user.passwordHash) {
-        registrarFalloLogin();
-        throw new Error("Usuario o contraseña incorrectos.");
-    }
-    resetBloqueoLogin();
-    guardarSesionAuth(user.email);
-}
-
-async function bindAuthUI() {
-    await asegurarUsuarioDemo();
-
-    const btnLogout = document.getElementById("btn-logout");
-    const tabLogin = document.getElementById("tab-login");
-    const tabRegister = document.getElementById("tab-register");
-    const formLogin = document.getElementById("form-login");
-    const formRegister = document.getElementById("form-register");
-    const rawSession = localStorage.getItem(AUTH_SESSION_KEY);
-    if (rawSession) {
-        try {
-            currentUserSession = JSON.parse(rawSession);
-        } catch (_e) {
-            currentUserSession = null;
-        }
-    }
-    actualizarEstadoSesionUI();
-
-    if (btnLogout) {
-        btnLogout.onclick = () => cerrarSesionAuth();
-    }
-    if (tabLogin) tabLogin.onclick = () => abrirTabAuth("login");
-    if (tabRegister) tabRegister.onclick = () => abrirTabAuth("register");
-
-    if (formLogin) {
-        formLogin.onsubmit = async (ev) => {
-            ev.preventDefault();
-            const email = document.getElementById("login-email").value;
-            const password = document.getElementById("login-password").value;
-            if (!esEmailValido(email)) {
-                setAuthStatus("Ingresa un email válido.", true);
-                return;
-            }
-            if (!password || password.length < 8) {
-                setAuthStatus("La contraseña debe tener al menos 8 caracteres.", true);
-                return;
-            }
-            try {
-                await autenticarUsuario(email, password);
-                setAuthStatus(`Bienvenido, ${email.trim().toLowerCase()}.`);
-            } catch (err) {
-                setAuthStatus(err.message || "No se pudo iniciar sesión.", true);
-            }
-        };
-    }
-
-    if (formRegister) {
-        formRegister.onsubmit = async (ev) => {
-            ev.preventDefault();
-            const email = document.getElementById("register-email").value;
-            const password = document.getElementById("register-password").value;
-            const repeat = document.getElementById("register-password-repeat").value;
-            if (!esEmailValido(email)) {
-                setAuthStatus("Email inválido para registro.", true);
-                return;
-            }
-            if (!password || password.length < 8) {
-                setAuthStatus("Usa una contraseña de al menos 8 caracteres.", true);
-                return;
-            }
-            if (password !== repeat) {
-                setAuthStatus("Las contraseñas no coinciden.", true);
-                return;
-            }
-            try {
-                await registrarUsuario(email, password);
-                setAuthStatus("Cuenta creada. Ahora puedes iniciar sesión.");
-                abrirTabAuth("login");
-                document.getElementById("login-email").value = email.trim().toLowerCase();
-                document.getElementById("login-password").value = "";
-            } catch (err) {
-                setAuthStatus(err.message || "No se pudo registrar el usuario.", true);
-            }
-        };
-    }
 }
 
 function normalizarClave(tag) {
@@ -1436,7 +1202,7 @@ function cargarDesdeLocal() {
 // =========================================================
 // 8. INICIALIZACION
 // =========================================================
-window.onload = async function onLoad() {
+window.onload = function onLoad() {
     if (window.L && L.GeometryUtil) {
         console.log("Geometria cargada.");
     }
@@ -1449,5 +1215,4 @@ window.onload = async function onLoad() {
     bindHerramientas();
     initMobileBottomSheet();
     cargarDesdeLocal();
-    await bindAuthUI();
 };
