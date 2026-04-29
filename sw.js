@@ -6,7 +6,6 @@ const APP_SHELL = [
     "./js/script.js",
     "./js/geometria.js",
     "./manifest.json",
-    "./assets/splash-cana.png",
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
     "https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js",

@@ -413,15 +413,6 @@ function limpiarFotos() {
     actualizarListaFotos();
 }
 
-function iniciarSplash() {
-    const splash = document.getElementById("splash-screen");
-    if (!splash) return;
-    setTimeout(() => {
-        splash.classList.add("is-hidden");
-        setTimeout(() => splash.remove(), 520);
-    }, 2000);
-}
-
 function actualizarDebugExif(data, telemetria, faltantes) {
     const ui = document.getElementById("debug-exif-contenido");
     if (!ui) return;
@@ -1260,5 +1251,4 @@ window.onload = function onLoad() {
     bindHerramientas();
     initMobileBottomSheet();
     cargarDesdeLocal();
-    iniciarSplash();
 };
