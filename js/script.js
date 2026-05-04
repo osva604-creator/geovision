@@ -1111,6 +1111,10 @@ function exportarPoligonosKML() {
     URL.revokeObjectURL(url);
 }
 
+function exportarDJIFarm() {
+    alert("Funcion DJI FARM pendiente de integrar.");
+}
+
 // =========================================================
 // 7. PERSISTENCIA
 // =========================================================
@@ -1235,6 +1239,7 @@ window.onload = function onLoad() {
     document.getElementById("btn-localizar").onclick = localizarUsuario;
     document.getElementById("btn-borrar-todo").onclick = window.borrarTodoElMapa;
     document.getElementById("btn-exportar-kml").onclick = exportarPoligonosKML;
+    document.getElementById("btn-dji-farm").onclick = exportarDJIFarm;
     bindInstalacionApp();
     addCompassControl();
     bindFotoDrone();
