@@ -1239,7 +1239,11 @@ window.onload = function onLoad() {
     document.getElementById("btn-localizar").onclick = localizarUsuario;
     document.getElementById("btn-borrar-todo").onclick = window.borrarTodoElMapa;
     document.getElementById("btn-exportar-kml").onclick = exportarPoligonosKML;
-    document.getElementById("btn-dji-farm").onclick = exportarDJIFarm;
+
+    const btnDJIFarm = document.getElementById("btn-dji-farm");
+    if (btnDJIFarm) {
+        btnDJIFarm.onclick = exportarDJIFarm;
+    }
     bindInstalacionApp();
     addCompassControl();
     bindFotoDrone();
