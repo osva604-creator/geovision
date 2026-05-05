@@ -14,6 +14,8 @@ let historialFotos = [];
 const urlsTemporalesFotos = new Set();
 let capaOrientacionFoto = null;
 let capaVisionCalculada = null;
+let capaMalezaBuffer = null;
+let ultimaTelemetriaFoto = { zoom: 1, hfov: 73.74 };
 let deferredInstallPrompt = null;
 
 const WEATHER_API_KEY = window.WEATHER_API_KEY || "ee2057b73b750d1fae6127e3ce2d091d";
@@ -29,6 +31,21 @@ const map = L.map("map", {
     zoom: 15,
     layers: [googleHybrid],
     doubleClickZoom: false
+});
+
+function refrescarTamanoMapa() {
+    map.invalidateSize();
+}
+
+const mapContainerEl = document.getElementById("map-container");
+if (mapContainerEl && typeof ResizeObserver !== "undefined") {
+    const ro = new ResizeObserver(() => refrescarTamanoMapa());
+    ro.observe(mapContainerEl);
+}
+
+requestAnimationFrame(() => {
+    refrescarTamanoMapa();
+    requestAnimationFrame(refrescarTamanoMapa);
 });
 
 const droneIcon = L.icon({
@@ -122,6 +139,13 @@ function obtenerPrimerCampo(campos, candidatos) {
 
 function extraerTelemetria(data) {
     const campos = recolectarCamposNumericos(data);
+    const zoomRaw = obtenerPrimerCampo(campos, [
+        "DigitalZoomRatio", "ZoomRatio", "Zoom", "drone-dji:DigitalZoomRatio"
+    ]);
+    const zoom = Number.isFinite(zoomRaw) && zoomRaw > 0 ? zoomRaw : 1;
+    const focalEquiv = 24 / zoom;
+    const hfov = 2 * Math.atan(18 / focalEquiv) * (180 / Math.PI);
+
     return {
         pitch: obtenerPrimerCampo(campos, [
             "GimbalPitchDegree", "FlightPitchDegree", "CameraPitch", "GimbalPitch", "Pitch",
@@ -135,7 +159,9 @@ function extraerTelemetria(data) {
         alt: obtenerPrimerCampo(campos, [
             "RelativeAltitude", "AbsoluteAltitude", "GPSAltitude", "Altitude", "DroneAltitude",
             "drone-dji:RelativeAltitude", "drone-dji:AbsoluteAltitude"
-        ])
+        ]),
+        zoom,
+        hfov
     };
 }
 
@@ -163,6 +189,12 @@ function limpiarVisionCalculada() {
     if (!capaVisionCalculada) return;
     map.removeLayer(capaVisionCalculada);
     capaVisionCalculada = null;
+}
+
+function limpiarBufferMaleza() {
+    if (!capaMalezaBuffer) return;
+    map.removeLayer(capaMalezaBuffer);
+    capaMalezaBuffer = null;
 }
 
 function mostrarOrientacionFoto(lat, lon, yaw) {
@@ -259,6 +291,10 @@ function generarTextoTooltipFoto(foto) {
 function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
     if (!foto) return;
     ultimasCoordsReales = { lat: foto.lat, lon: foto.lon };
+    ultimaTelemetriaFoto = {
+        zoom: Number.isFinite(foto.zoom) && foto.zoom > 0 ? foto.zoom : 1,
+        hfov: Number.isFinite(foto.hfov) && foto.hfov > 0 ? foto.hfov : 73.74
+    };
     if (typeof foto.pitch === "number") document.getElementById("gimbal-pitch").value = Math.abs(foto.pitch).toFixed(1);
     if (typeof foto.yaw === "number") document.getElementById("drone-heading").value = normalizarGrados(foto.yaw).toFixed(0);
     if (typeof foto.alt === "number") document.getElementById("manual-alt").value = Math.abs(foto.alt).toFixed(0);
@@ -271,6 +307,32 @@ function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
 
     document.getElementById("resultado-mira").innerHTML = `Foto seleccionada: <strong>${foto.nombre}</strong>`;
     if (foto.marcador && enfocarMapa) foto.marcador.openPopup();
+}
+
+function calcularPoligonoMaleza(datos) {
+    const { origenLat, origenLng, altitud, hfov, yaw, distanciaAlSuelo } = datos;
+    if (![origenLat, origenLng, altitud, hfov, yaw, distanciaAlSuelo].every(Number.isFinite)) return null;
+    if (altitud <= 0 || hfov <= 0 || distanciaAlSuelo < 0) return null;
+
+    const centroObjetivo = proyectar(origenLat, origenLng, distanciaAlSuelo, normalizarGrados(yaw));
+    const anchoSuelo = 2 * distanciaAlSuelo * Math.tan((hfov / 2) * (Math.PI / 180));
+    if (!Number.isFinite(anchoSuelo) || anchoSuelo <= 0) return null;
+
+    const mitadLado = anchoSuelo / 2;
+    const distanciaEsquina = Math.sqrt((mitadLado ** 2) * 2);
+    const rumbosEsquinas = [45, 135, 225, 315].map((offset) => normalizarGrados(yaw + offset));
+    const vertices = rumbosEsquinas.map((rumbo) => proyectar(centroObjetivo.lat, centroObjetivo.lon, distanciaEsquina, rumbo));
+
+    limpiarBufferMaleza();
+    capaMalezaBuffer = L.polygon(
+        vertices.map((v) => [v.lat, v.lon]),
+        { color: "#2ecc71", weight: 2, fillColor: "#2ecc71", fillOpacity: 0.18 }
+    )
+        .bindTooltip(`Cobertura maleza: ${anchoSuelo.toFixed(1)} m`, { direction: "top" })
+        .addTo(map);
+
+    console.log(`Generando cuadrado de ${anchoSuelo.toFixed(2)}m para maleza.`);
+    return { centroObjetivo, anchoSuelo };
 }
 
 function crearMarcadorFoto(foto, fotoURL) {
@@ -501,6 +563,7 @@ function bindFotoDrone() {
             if (telemetria.pitch !== null) document.getElementById("gimbal-pitch").value = Math.abs(telemetria.pitch).toFixed(1);
             if (telemetria.yaw !== null) document.getElementById("drone-heading").value = normalizarGrados(telemetria.yaw).toFixed(0);
             if (telemetria.alt !== null) document.getElementById("manual-alt").value = Math.abs(telemetria.alt).toFixed(0);
+            ultimaTelemetriaFoto = { zoom: telemetria.zoom, hfov: telemetria.hfov };
 
             document.getElementById("telemetria-drone").innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}`;
 
@@ -515,7 +578,9 @@ function bindFotoDrone() {
                     fecha: new Date().toISOString(),
                     pitch: telemetria.pitch,
                     yaw: telemetria.yaw,
-                    alt: telemetria.alt
+                    alt: telemetria.alt,
+                    zoom: telemetria.zoom,
+                    hfov: telemetria.hfov
                 },
                 fotoURL
             );
@@ -598,11 +663,21 @@ function bindProyeccion() {
             rumbo
         );
 
-        document.getElementById("resultado-mira").innerHTML = `Objetivo a ${distH.toFixed(1)} m`;
+        const bufferMaleza = calcularPoligonoMaleza({
+            origenLat: ultimasCoordsReales.lat,
+            origenLng: ultimasCoordsReales.lon,
+            altitud: alt,
+            hfov: ultimaTelemetriaFoto.hfov,
+            yaw: rumbo,
+            distanciaAlSuelo: distH
+        });
+
+        document.getElementById("resultado-mira").innerHTML = `Objetivo a ${distH.toFixed(1)} m${bufferMaleza ? ` | Zoom x${ultimaTelemetriaFoto.zoom.toFixed(2)} | Cobertura ${bufferMaleza.anchoSuelo.toFixed(1)} m` : ""}`;
         map.flyTo([obj.lat, obj.lon], 19);
     };
 
     btnProyectar.onclick = calcularObjetivo;
+    window.generarPoligonoAutomatico = calcularObjetivo;
 
     [inputAltitud, inputPitch, inputHeading].forEach((input) => {
         if (!input) return;
@@ -966,6 +1041,7 @@ function initMobileBottomSheet() {
     else mq.addListener(aplicarEstado);
 
     aplicarEstado();
+    requestAnimationFrame(refrescarTamanoMapa);
 }
 
 // =========================================================
@@ -1050,6 +1126,10 @@ window.borrarFoto = (id) => {
 // =========================================================
 // 6. EXPORTACION
 // =========================================================
+const URL_GATEWAY_DJI_FARM = "https://gateway-dji-farm-498689304873.southamerica-east1.run.app";
+const HEADER_MISSION_NAME = "X-Mission-Name";
+const HEADER_MISSION_DATE = "X-Mission-Date";
+
 function escaparXml(texto) {
     return String(texto)
         .replace(/&/g, "&amp;")
@@ -1111,8 +1191,168 @@ function exportarPoligonosKML() {
     URL.revokeObjectURL(url);
 }
 
+<<<<<<< HEAD
 function exportarDJIFarm() {
     alert("Funcion DJI FARM pendiente de integrar.");
+=======
+async function crearBlobMisionKMZ() {
+    const contenidoKml = convertirPoligonosAKML();
+    if (!window.JSZip) {
+        throw new Error("JSZip no esta disponible para generar KMZ.");
+    }
+
+    const zip = new window.JSZip();
+    zip.file("doc.kml", contenidoKml);
+    return zip.generateAsync({
+        type: "blob",
+        mimeType: "application/vnd.google-earth.kmz",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 }
+    });
+}
+
+async function crearBlobPruebaDJI() {
+    if (!window.JSZip) {
+        throw new Error("JSZip no esta disponible para generar KMZ.");
+    }
+
+    const contenidoKml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>GeoVision Test</name>
+    <Placemark>
+      <name>GeoVision Test Point</name>
+      <description>Prueba de comunicacion GeoVision -> Gateway DJI</description>
+      <Point>
+        <coordinates>-65.203,-26.837,0</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
+</kml>`;
+
+    const zip = new window.JSZip();
+    zip.file("doc.kml", contenidoKml);
+    return zip.generateAsync({
+        type: "blob",
+        mimeType: "application/vnd.google-earth.kmz",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 }
+    });
+}
+
+function normalizarNombreMision(texto) {
+    return String(texto || "")
+        .trim()
+        .replace(/\s+/g, "-")
+        .replace(/[^\w\-]/g, "")
+        .replace(/\-+/g, "-")
+        .replace(/^\-+|\-+$/g, "");
+}
+
+function crearMetadataMision(nombrePersonalizado = "") {
+    const ahora = new Date();
+    const fechaIso = ahora.toISOString();
+    const fechaCompacta = fechaIso.slice(0, 19).replace(/[:T]/g, "-");
+    const nombreBase = normalizarNombreMision(nombrePersonalizado);
+    return {
+        nombre: nombreBase || `geovision-mision-${fechaCompacta}`,
+        fechaIso
+    };
+}
+
+async function enviarMisionADron(kmzBlob, metadataMision) {
+    console.log("Despachando mision desde GeoVision...");
+
+    try {
+        const response = await fetch(URL_GATEWAY_DJI_FARM, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/vnd.google-earth.kmz",
+                [HEADER_MISSION_NAME]: metadataMision.nombre,
+                [HEADER_MISSION_DATE]: metadataMision.fechaIso
+            },
+            body: kmzBlob
+        });
+
+        if (!response.ok) {
+            const detalle = await response.text();
+            throw new Error(`Gateway respondio con estado ${response.status}: ${detalle}`);
+        }
+
+        let resultado;
+        try {
+            resultado = await response.json();
+        } catch (_errorJson) {
+            resultado = {};
+        }
+
+        if (resultado.success) {
+            alert("🚀 Mision enviada al dron con exito!");
+            console.log("Mision:", metadataMision);
+            console.log("Respuesta DJI:", resultado);
+            return;
+        }
+
+        alert("⚠️ El gateway respondio, pero no confirmo exito.");
+        console.log("Respuesta DJI:", resultado);
+    } catch (error) {
+        console.error("Falla en el despacho:", error);
+        alert("❌ Error al conectar con el Gateway de San Pablo");
+    }
+}
+
+async function exportarDJIFarm() {
+    if (historialPoligonos.length === 0) {
+        alert("No hay poligonos para enviar a DJI FARM.");
+        return;
+    }
+
+    const nombreSugerido = crearMetadataMision().nombre;
+    const nombreIngresado = window.prompt("Nombre de la mision:", nombreSugerido);
+    if (nombreIngresado === null) return;
+
+    const metadataMision = crearMetadataMision(nombreIngresado);
+    const btnDJIFarm = document.getElementById("btn-dji-farm");
+    if (btnDJIFarm) {
+        btnDJIFarm.disabled = true;
+        btnDJIFarm.textContent = "Enviando...";
+    }
+
+    try {
+        const kmzBlob = await crearBlobMisionKMZ();
+        await enviarMisionADron(kmzBlob, metadataMision);
+    } catch (error) {
+        console.error("No se pudo generar/enviar la mision:", error);
+        alert("❌ No se pudo preparar o enviar la mision KMZ.");
+    } finally {
+        if (btnDJIFarm) {
+            btnDJIFarm.disabled = false;
+            btnDJIFarm.textContent = "DJI FARM";
+        }
+    }
+}
+
+async function probarConexionDJI() {
+    const btnTest = document.getElementById("btn-dji-test");
+    if (btnTest) {
+        btnTest.disabled = true;
+        btnTest.textContent = "Probando...";
+    }
+
+    try {
+        const metadataMision = crearMetadataMision("geovision-test-conexion");
+        const kmzBlob = await crearBlobPruebaDJI();
+        await enviarMisionADron(kmzBlob, metadataMision);
+    } catch (error) {
+        console.error("No se pudo ejecutar la prueba DJI:", error);
+        alert("❌ Fallo la prueba de comunicacion con DJI.");
+    } finally {
+        if (btnTest) {
+            btnTest.disabled = false;
+            btnTest.textContent = "Probar conexión DJI";
+        }
+    }
+>>>>>>> 82d4ddd (actualizacion 4.3)
 }
 
 // =========================================================
@@ -1145,7 +1385,9 @@ function guardarEnLocal() {
             fecha: f.fecha,
             pitch: f.pitch,
             yaw: f.yaw,
-            alt: f.alt
+            alt: f.alt,
+            zoom: f.zoom,
+            hfov: f.hfov
         })),
         ultimasCoordsReales
     };
@@ -1218,7 +1460,9 @@ function cargarDesdeLocal() {
                 fecha: f.fecha || new Date().toISOString(),
                 pitch: typeof f.pitch === "number" ? f.pitch : null,
                 yaw: typeof f.yaw === "number" ? f.yaw : null,
-                alt: typeof f.alt === "number" ? f.alt : null
+                alt: typeof f.alt === "number" ? f.alt : null,
+                zoom: typeof f.zoom === "number" ? f.zoom : 1,
+                hfov: typeof f.hfov === "number" ? f.hfov : 73.74
             });
         });
     }
@@ -1233,6 +1477,9 @@ function cargarDesdeLocal() {
 // 8. INICIALIZACION
 // =========================================================
 window.onload = function onLoad() {
+    refrescarTamanoMapa();
+    requestAnimationFrame(refrescarTamanoMapa);
+
     if (window.L && L.GeometryUtil) {
         console.log("Geometria cargada.");
     }
@@ -1244,6 +1491,23 @@ window.onload = function onLoad() {
     if (btnDJIFarm) {
         btnDJIFarm.onclick = exportarDJIFarm;
     }
+<<<<<<< HEAD
+=======
+    const btnDJITest = document.getElementById("btn-dji-test");
+    if (btnDJITest) {
+        btnDJITest.onclick = probarConexionDJI;
+    }
+    const btnPoligonoAuto = document.getElementById("btn-poligono-auto");
+    if (btnPoligonoAuto) {
+        btnPoligonoAuto.onclick = () => {
+            if (typeof window.generarPoligonoAutomatico === "function") {
+                window.generarPoligonoAutomatico();
+                return;
+            }
+            alert("La herramienta de poligono automatico no esta lista todavia.");
+        };
+    }
+>>>>>>> 82d4ddd (actualizacion 4.3)
     bindInstalacionApp();
     addCompassControl();
     bindFotoDrone();

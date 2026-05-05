@@ -1,4 +1,4 @@
-const CACHE_NAME = "geovision-v4";
+const CACHE_NAME = "geovision-v5";
 const APP_SHELL = [
     "./",
     "./index.html",
@@ -9,6 +9,7 @@ const APP_SHELL = [
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
     "https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js",
+    "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js",
     "https://cdn.jsdelivr.net/npm/leaflet-geometryutil@0.10.3/src/leaflet.geometryutil.min.js"
 ];
 

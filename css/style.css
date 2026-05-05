@@ -47,19 +47,24 @@ main {
     display: flex;
     flex: 1;
     overflow: hidden;
+    min-height: 0;
 }
 
 #map-container {
     display: flex;
     flex: 3;
+    min-height: 0;
     background-color: #242424;
     position: relative;
 }
 
+/* Leaflet necesita dimensiones reales; en flex, height:100% a veces colapsa */
 #map {
-    display: flex;
-    height: 100%;
-    width: 100%;
+    position: absolute;
+    inset: 0;
+    width: auto;
+    height: auto;
+    z-index: 1;
 }
 
 #sidebar {
