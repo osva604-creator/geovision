@@ -142,7 +142,7 @@ button:hover {
     background-color: var(--primary-hover);
 }
 
-#lista-puntos, #lista-medidas, #lista-poligonos, #lista-fotos {
+#lista-puntos, #lista-medidas, #lista-poligonos, #lista-poligonos-manuales, #lista-poligonos-automaticos, #lista-fotos {
     max-height: 200px;
     overflow-y: auto;
     background: rgba(18, 43, 35, 0.5);
@@ -209,6 +209,8 @@ button:hover {
 #lista-puntos li:hover,
 #lista-medidas li:hover,
 #lista-poligonos li:hover,
+#lista-poligonos-manuales li:hover,
+#lista-poligonos-automaticos li:hover,
 #lista-fotos li:hover {
     background: rgba(59, 130, 246, 0.12);
     border-radius: 6px;

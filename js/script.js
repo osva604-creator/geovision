@@ -14,7 +14,6 @@ let historialFotos = [];
 const urlsTemporalesFotos = new Set();
 let capaOrientacionFoto = null;
 let capaVisionCalculada = null;
-let capaMalezaBuffer = null;
 let ultimaTelemetriaFoto = { zoom: 1, hfov: 73.74 };
 let deferredInstallPrompt = null;
 
@@ -191,10 +190,41 @@ function limpiarVisionCalculada() {
     capaVisionCalculada = null;
 }
 
-function limpiarBufferMaleza() {
-    if (!capaMalezaBuffer) return;
-    map.removeLayer(capaMalezaBuffer);
-    capaMalezaBuffer = null;
+function crearPoligonoEditable(coords, nombre, opciones = {}) {
+    if (!Array.isArray(coords) || coords.length < 3) return null;
+    const id = opciones.id || Date.now();
+    const poli = L.polygon(coords, {
+        color: opciones.color || "#2ecc71",
+        weight: typeof opciones.weight === "number" ? opciones.weight : 2,
+        fillColor: opciones.fillColor || opciones.color || "#2ecc71",
+        fillOpacity: typeof opciones.fillOpacity === "number" ? opciones.fillOpacity : 0.3
+    }).addTo(map);
+
+    const vertices = [];
+    coords.forEach((ll) => {
+        const v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: "vertice-poligono", iconSize: [10, 10] }) }).addTo(map);
+        v.on("drag", () => {
+            poli.setLatLngs(vertices.map((marker) => marker.getLatLng()));
+            actualizarInfoPoligono(id);
+            guardarEnLocal();
+        });
+        vertices.push(v);
+    });
+
+    const registro = {
+        id,
+        objeto: poli,
+        marcadores: vertices,
+        nombre: nombre || `Area ${historialPoligonos.length + 1}`,
+        areaTxt: "",
+        seleccionado: opciones.seleccionado !== false,
+        esAutomatico: opciones.esAutomatico === true
+    };
+    historialPoligonos.push(registro);
+    actualizarInfoPoligono(id);
+    setVisibilidadPoligono(registro, registro.seleccionado !== false);
+    if (opciones.guardar !== false) guardarEnLocal();
+    return registro;
 }
 
 function mostrarOrientacionFoto(lat, lon, yaw) {
@@ -288,6 +318,15 @@ function generarTextoTooltipFoto(foto) {
     return `<b>${foto.nombre}</b><br>${formatearCoords(foto.lat, foto.lon)}`;
 }
 
+function archivoADataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+        reader.onerror = () => reject(new Error("No se pudo convertir la imagen."));
+        reader.readAsDataURL(file);
+    });
+}
+
 function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
     if (!foto) return;
     ultimasCoordsReales = { lat: foto.lat, lon: foto.lon };
@@ -315,23 +354,25 @@ function calcularPoligonoMaleza(datos) {
     if (altitud <= 0 || hfov <= 0 || distanciaAlSuelo < 0) return null;
 
     const centroObjetivo = proyectar(origenLat, origenLng, distanciaAlSuelo, normalizarGrados(yaw));
-    const anchoSuelo = 2 * distanciaAlSuelo * Math.tan((hfov / 2) * (Math.PI / 180));
-    if (!Number.isFinite(anchoSuelo) || anchoSuelo <= 0) return null;
+    const anchoSuelo = 100;
 
     const mitadLado = anchoSuelo / 2;
     const distanciaEsquina = Math.sqrt((mitadLado ** 2) * 2);
     const rumbosEsquinas = [45, 135, 225, 315].map((offset) => normalizarGrados(yaw + offset));
     const vertices = rumbosEsquinas.map((rumbo) => proyectar(centroObjetivo.lat, centroObjetivo.lon, distanciaEsquina, rumbo));
 
-    limpiarBufferMaleza();
-    capaMalezaBuffer = L.polygon(
+    const totalAutomaticos = historialPoligonos.filter((p) => p.esAutomatico === true).length;
+    const nombrePoligono = `Maleza Auto ${totalAutomaticos + 1}`;
+    const poligono = crearPoligonoEditable(
         vertices.map((v) => [v.lat, v.lon]),
-        { color: "#2ecc71", weight: 2, fillColor: "#2ecc71", fillOpacity: 0.18 }
-    )
-        .bindTooltip(`Cobertura maleza: ${anchoSuelo.toFixed(1)} m`, { direction: "top" })
-        .addTo(map);
+        nombrePoligono,
+        { color: "#2ecc71", weight: 2, fillColor: "#2ecc71", fillOpacity: 0.18, guardar: false, seleccionado: true, esAutomatico: true }
+    );
+    if (!poligono) return null;
+    poligono.objeto.bindTooltip(`Cobertura maleza: ${anchoSuelo.toFixed(0)} x ${anchoSuelo.toFixed(0)} m (editable)`, { direction: "top" });
+    guardarEnLocal();
 
-    console.log(`Generando cuadrado de ${anchoSuelo.toFixed(2)}m para maleza.`);
+    console.log(`Generando cuadrado de ${anchoSuelo.toFixed(0)}x${anchoSuelo.toFixed(0)}m para maleza.`);
     return { centroObjetivo, anchoSuelo };
 }
 
@@ -342,15 +383,20 @@ function crearMarcadorFoto(foto, fotoURL) {
         className: "etiqueta-punto"
     });
 
-    const htmlPopup = fotoURL
+    const imagenPopup = fotoURL || foto.fotoPreviewURL || null;
+    const htmlPopup = imagenPopup
         ? `<div style="text-align:center; min-width: 300px;">
                 <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
-                <img src="${fotoURL}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" onclick="window.open('${fotoURL}', '_blank')">
+                <img src="${imagenPopup}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" onclick="window.open('${imagenPopup}', '_blank')">
                 <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa para ver imagen completa</p>
             </div>`
-        : `<div style="text-align:center;">
+        : `<div style="text-align:center; min-width: 300px;">
                 <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
-                <p style="font-size: 12px; color: #ecf0f1; margin:0;">
+                <div style="width:100%; min-height:170px; border-radius:10px; border:1px dashed #4b5563; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:#1f2937; color:#9ca3af;">
+                    <div style="font-size:30px; line-height:1;">🖼️</div>
+                    <div style="font-size:12px; padding:0 12px;">Foto sin miniatura guardada (registro anterior).</div>
+                </div>
+                <p style="font-size: 12px; color: #ecf0f1; margin:10px 0 0 0;">
                     ${foto.nombre}<br>${formatearCoords(foto.lat, foto.lon)}
                 </p>
             </div>`;
@@ -405,8 +451,7 @@ function actualizarListaFotos() {
         });
         li.addEventListener("click", () => {
             if (!foto.marcador) return;
-            map.flyTo([foto.lat, foto.lon], 19);
-            foto.marcador.openPopup();
+            seleccionarFotoParaCalculo(foto, true);
         });
 
         const acciones = document.createElement("div");
@@ -451,6 +496,7 @@ function agregarFotoHistorial(fotoData, fotoURL) {
         fotoURL: fotoURL || null,
         marcador: marker
     };
+    marker.on("click", () => seleccionarFotoParaCalculo(foto, false));
     historialFotos.unshift(foto);
     actualizarListaFotos();
     guardarEnLocal();
@@ -559,6 +605,7 @@ function bindFotoDrone() {
             ultimasCoordsReales = { lat: data.latitude, lon: data.longitude };
             const fotoURL = URL.createObjectURL(file);
             urlsTemporalesFotos.add(fotoURL);
+            const fotoPreviewURL = await archivoADataURL(file);
 
             if (telemetria.pitch !== null) document.getElementById("gimbal-pitch").value = Math.abs(telemetria.pitch).toFixed(1);
             if (telemetria.yaw !== null) document.getElementById("drone-heading").value = normalizarGrados(telemetria.yaw).toFixed(0);
@@ -580,7 +627,8 @@ function bindFotoDrone() {
                     yaw: telemetria.yaw,
                     alt: telemetria.alt,
                     zoom: telemetria.zoom,
-                    hfov: telemetria.hfov
+                    hfov: telemetria.hfov,
+                    fotoPreviewURL
                 },
                 fotoURL
             );
@@ -609,10 +657,10 @@ function bindProyeccion() {
     const inputAltitud = document.getElementById("manual-alt");
     const inputPitch = document.getElementById("gimbal-pitch");
     const inputHeading = document.getElementById("drone-heading");
-    const calcularObjetivo = () => {
+    const resolverDatosObjetivo = () => {
         if (!ultimasCoordsReales) {
             alert("Primero debes subir una foto del drone.");
-            return;
+            return null;
         }
 
         const inputAlt = document.getElementById("manual-alt").value.trim();
@@ -620,7 +668,7 @@ function bindProyeccion() {
         const inputHead = document.getElementById("drone-heading").value.trim();
         if (!inputAlt || !inputPitch || !inputHead) {
             alert("No se puede calcular: completa pitch del gimbal, rumbo y altitud.");
-            return;
+            return null;
         }
 
         const alt = parseFloat(inputAlt);
@@ -628,11 +676,11 @@ function bindProyeccion() {
         const head = parseFloat(inputHead);
         if (!Number.isFinite(alt) || !Number.isFinite(pitchOriginal) || !Number.isFinite(head)) {
             alert("No se puede calcular: los datos del gimbal, rumbo y altura deben ser numericos.");
-            return;
+            return null;
         }
         if (alt <= 0) {
             alert("No se puede calcular: la altitud debe ser mayor a 0.");
-            return;
+            return null;
         }
 
         const pitchAbs = Math.abs(pitchOriginal);
@@ -644,40 +692,61 @@ function bindProyeccion() {
 
         const rumbo = normalizarGrados(head);
         const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, rumbo);
+        return {
+            alt,
+            rumbo,
+            distH,
+            obj,
+            origen: { lat: ultimasCoordsReales.lat, lon: ultimasCoordsReales.lon }
+        };
+    };
 
-        L.marker([obj.lat, obj.lon], { icon: iconoMira })
+    const calcularObjetivo = () => {
+        const datos = resolverDatosObjetivo();
+        if (!datos) return;
+
+        L.marker([datos.obj.lat, datos.obj.lon], { icon: iconoMira })
             .addTo(map)
             .bindPopup(
                 `<div style="text-align:center;">
                     <strong style="color:#2980b9;">Objetivo calculado</strong><br>
-                    <small>${decimalADMS(obj.lat, true)}<br>${decimalADMS(obj.lon, false)}</small><br>
+                    <small>${decimalADMS(datos.obj.lat, true)}<br>${decimalADMS(datos.obj.lon, false)}</small><br>
                     <hr style="margin:5px 0;">
-                    <span>Distancia: <strong>${distH.toFixed(1)} m</strong></span>
+                    <span>Distancia: <strong>${datos.distH.toFixed(1)} m</strong></span>
                 </div>`
             )
             .openPopup();
 
         mostrarLineaVision(
-            { lat: ultimasCoordsReales.lat, lon: ultimasCoordsReales.lon },
-            { lat: obj.lat, lon: obj.lon },
-            rumbo
+            datos.origen,
+            { lat: datos.obj.lat, lon: datos.obj.lon },
+            datos.rumbo
         );
+        document.getElementById("resultado-mira").innerHTML = `Objetivo a ${datos.distH.toFixed(1)} m | Zoom x${ultimaTelemetriaFoto.zoom.toFixed(2)}`;
+        map.flyTo([datos.obj.lat, datos.obj.lon], 19);
+    };
+
+    const calcularSoloPoligonoAutomatico = () => {
+        const datos = resolverDatosObjetivo();
+        if (!datos) return;
 
         const bufferMaleza = calcularPoligonoMaleza({
-            origenLat: ultimasCoordsReales.lat,
-            origenLng: ultimasCoordsReales.lon,
-            altitud: alt,
+            origenLat: datos.origen.lat,
+            origenLng: datos.origen.lon,
+            altitud: datos.alt,
             hfov: ultimaTelemetriaFoto.hfov,
-            yaw: rumbo,
-            distanciaAlSuelo: distH
+            yaw: datos.rumbo,
+            distanciaAlSuelo: datos.distH
         });
 
-        document.getElementById("resultado-mira").innerHTML = `Objetivo a ${distH.toFixed(1)} m${bufferMaleza ? ` | Zoom x${ultimaTelemetriaFoto.zoom.toFixed(2)} | Cobertura ${bufferMaleza.anchoSuelo.toFixed(1)} m` : ""}`;
-        map.flyTo([obj.lat, obj.lon], 19);
+        document.getElementById("resultado-mira").innerHTML = bufferMaleza
+            ? `Poligono automatico: ${bufferMaleza.anchoSuelo.toFixed(0)} x ${bufferMaleza.anchoSuelo.toFixed(0)} m | Distancia objetivo ${datos.distH.toFixed(1)} m`
+            : "No se pudo generar el poligono automatico.";
+        map.flyTo([datos.obj.lat, datos.obj.lon], 19);
     };
 
     btnProyectar.onclick = calcularObjetivo;
-    window.generarPoligonoAutomatico = calcularObjetivo;
+    window.generarPoligonoAutomatico = calcularSoloPoligonoAutomatico;
 
     [inputAltitud, inputPitch, inputHeading].forEach((input) => {
         if (!input) return;
@@ -872,23 +941,70 @@ function actualizarInfoPoligono(id) {
     actualizarListaPoligonos();
 }
 
+function enfocarPoligono(id) {
+    const p = historialPoligonos.find((x) => x.id === id);
+    if (!p || !p.objeto) return;
+    const bounds = p.objeto.getBounds();
+    if (!bounds || !bounds.isValid()) return;
+    map.flyToBounds(bounds, { padding: [60, 60], maxZoom: 19 });
+}
+
+function setVisibilidadPoligono(poligono, visible) {
+    if (!poligono) return;
+    const objetivoVisible = visible !== false;
+    poligono.seleccionado = objetivoVisible;
+
+    if (objetivoVisible) {
+        if (!map.hasLayer(poligono.objeto)) poligono.objeto.addTo(map);
+        poligono.marcadores.forEach((m) => {
+            if (!map.hasLayer(m)) m.addTo(map);
+        });
+        return;
+    }
+
+    if (map.hasLayer(poligono.objeto)) map.removeLayer(poligono.objeto);
+    poligono.marcadores.forEach((m) => {
+        if (map.hasLayer(m)) map.removeLayer(m);
+    });
+}
+
 function actualizarListaPoligonos() {
-    const ui = document.getElementById("lista-poligonos");
-    ui.innerHTML = "";
-    historialPoligonos.forEach((x) => {
+    const uiManuales = document.getElementById("lista-poligonos-manuales");
+    const uiAutomaticos = document.getElementById("lista-poligonos-automaticos");
+    if (!uiManuales || !uiAutomaticos) return;
+
+    uiManuales.innerHTML = "";
+    uiAutomaticos.innerHTML = "";
+
+    function renderFilaPoligono(x, uiDestino) {
         const li = document.createElement("li");
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
         const cont = document.createElement("div");
         cont.style.cssText = "display:flex; flex-direction:column;";
+        const filaTitulo = document.createElement("div");
+        filaTitulo.style.cssText = "display:flex; align-items:center; gap:6px;";
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.checked = x.seleccionado !== false;
+        check.title = "Mostrar/Ocultar y seleccionar para exportar";
+        check.addEventListener("change", () => {
+            setVisibilidadPoligono(x, check.checked);
+            if (check.checked) enfocarPoligono(x.id);
+            guardarEnLocal();
+        });
         const input = document.createElement("input");
         input.type = "text";
         input.value = x.nombre;
         input.style.cssText = "background:none; border:1px solid #555; color:#2ecc71; width:100px; font-size:0.8em;";
         input.addEventListener("change", () => window.cambiarNombrePoligono(x.id, input.value));
+        input.title = "Doble click para centrar en el mapa";
+        input.addEventListener("dblclick", () => enfocarPoligono(x.id));
         const meta = document.createElement("small");
         meta.style.color = "#aaa";
         meta.innerText = x.areaTxt || "---";
-        cont.appendChild(input);
+        filaTitulo.appendChild(check);
+        filaTitulo.appendChild(input);
+        cont.appendChild(filaTitulo);
         cont.appendChild(meta);
 
         const boton = document.createElement("button");
@@ -899,8 +1015,29 @@ function actualizarListaPoligonos() {
 
         li.appendChild(cont);
         li.appendChild(boton);
-        ui.appendChild(li);
+        uiDestino.appendChild(li);
+    }
+
+    historialPoligonos.forEach((x) => {
+        if (x.esAutomatico === true) {
+            renderFilaPoligono(x, uiAutomaticos);
+        } else {
+            renderFilaPoligono(x, uiManuales);
+        }
     });
+}
+
+function eliminarPoligonoPorId(id, opciones = {}) {
+    const { actualizar = true, guardar = true } = opciones;
+    const i = historialPoligonos.findIndex((x) => x.id === id);
+    if (i === -1) return false;
+    map.removeLayer(historialPoligonos[i].objeto);
+    historialPoligonos[i].marcadores.forEach((m) => map.removeLayer(m));
+    historialPoligonos.splice(i, 1);
+
+    if (actualizar) actualizarListaPoligonos();
+    if (guardar) guardarEnLocal();
+    return true;
 }
 
 function bindHerramientas() {
@@ -974,28 +1111,7 @@ function bindHerramientas() {
 
     map.on("dblclick", () => {
         if (!modoPoligono || puntosTemp.length < 3) return;
-        const id = Date.now();
-        const poli = L.polygon(puntosTemp, { color: "#2ecc71", fillOpacity: 0.3 }).addTo(map);
-        const vertices = [];
-
-        puntosTemp.forEach((ll) => {
-            const v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: "vertice-poligono", iconSize: [10, 10] }) }).addTo(map);
-            v.on("drag", () => {
-                poli.setLatLngs(vertices.map((marker) => marker.getLatLng()));
-                actualizarInfoPoligono(id);
-                guardarEnLocal();
-            });
-            vertices.push(v);
-        });
-
-        historialPoligonos.push({
-            id,
-            objeto: poli,
-            marcadores: vertices,
-            nombre: `Area ${historialPoligonos.length + 1}`,
-            areaTxt: ""
-        });
-        actualizarInfoPoligono(id);
+        crearPoligonoEditable(puntosTemp, `Area ${historialPoligonos.length + 1}`, { guardar: false, seleccionado: true });
         guardarEnLocal();
 
         puntosTemp = [];
@@ -1081,13 +1197,7 @@ window.borrarLinea = (id) => {
 };
 
 window.borrarPoligono = (id) => {
-    const i = historialPoligonos.findIndex((x) => x.id === id);
-    if (i === -1) return;
-    map.removeLayer(historialPoligonos[i].objeto);
-    historialPoligonos[i].marcadores.forEach((m) => map.removeLayer(m));
-    historialPoligonos.splice(i, 1);
-    actualizarListaPoligonos();
-    guardarEnLocal();
+    eliminarPoligonoPorId(id, { actualizar: true, guardar: true });
 };
 
 window.borrarPunto = (id) => {
@@ -1139,8 +1249,20 @@ function escaparXml(texto) {
         .replace(/'/g, "&apos;");
 }
 
-function convertirPoligonosAKML() {
-    const placemarks = historialPoligonos.map((p) => {
+function obtenerPoligonosSeleccionados() {
+    return historialPoligonos.filter((p) => p.seleccionado !== false);
+}
+
+function seleccionarTodosLosPoligonos(estadoSeleccionado) {
+    historialPoligonos.forEach((p) => {
+        setVisibilidadPoligono(p, estadoSeleccionado);
+    });
+    actualizarListaPoligonos();
+    guardarEnLocal();
+}
+
+function convertirPoligonosAKML(poligonos = historialPoligonos) {
+    const placemarks = poligonos.map((p) => {
         const puntos = p.objeto.getLatLngs()[0] || [];
         const coordenadas = puntos.map((pt) => `${pt.lng},${pt.lat},0`);
 
@@ -1173,12 +1295,13 @@ function convertirPoligonosAKML() {
 }
 
 function exportarPoligonosKML() {
-    if (historialPoligonos.length === 0) {
+    const poligonosSeleccionados = obtenerPoligonosSeleccionados();
+    if (poligonosSeleccionados.length === 0) {
         alert("No hay poligonos para exportar.");
         return;
     }
 
-    const contenido = convertirPoligonosAKML();
+    const contenido = convertirPoligonosAKML(poligonosSeleccionados);
     const blob = new Blob([contenido], { type: "application/vnd.google-earth.kml+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1191,12 +1314,8 @@ function exportarPoligonosKML() {
     URL.revokeObjectURL(url);
 }
 
-<<<<<<< HEAD
-function exportarDJIFarm() {
-    alert("Funcion DJI FARM pendiente de integrar.");
-=======
-async function crearBlobMisionKMZ() {
-    const contenidoKml = convertirPoligonosAKML();
+async function crearBlobMisionKMZ(poligonos = historialPoligonos) {
+    const contenidoKml = convertirPoligonosAKML(poligonos);
     if (!window.JSZip) {
         throw new Error("JSZip no esta disponible para generar KMZ.");
     }
@@ -1302,7 +1421,8 @@ async function enviarMisionADron(kmzBlob, metadataMision) {
 }
 
 async function exportarDJIFarm() {
-    if (historialPoligonos.length === 0) {
+    const poligonosSeleccionados = obtenerPoligonosSeleccionados();
+    if (poligonosSeleccionados.length === 0) {
         alert("No hay poligonos para enviar a DJI FARM.");
         return;
     }
@@ -1319,7 +1439,7 @@ async function exportarDJIFarm() {
     }
 
     try {
-        const kmzBlob = await crearBlobMisionKMZ();
+        const kmzBlob = await crearBlobMisionKMZ(poligonosSeleccionados);
         await enviarMisionADron(kmzBlob, metadataMision);
     } catch (error) {
         console.error("No se pudo generar/enviar la mision:", error);
@@ -1352,7 +1472,6 @@ async function probarConexionDJI() {
             btnTest.textContent = "Probar conexión DJI";
         }
     }
->>>>>>> 82d4ddd (actualizacion 4.3)
 }
 
 // =========================================================
@@ -1369,7 +1488,10 @@ function guardarEnLocal() {
         poligonos: historialPoligonos.map((p) => ({
             id: p.id,
             nombre: p.nombre,
-            coords: p.objeto.getLatLngs()[0]
+            coords: p.objeto.getLatLngs()[0],
+            seleccionado: p.seleccionado !== false,
+            esAutomatico: p.esAutomatico === true,
+            tipo: p.esAutomatico === true ? "automatico" : "manual"
         })),
         puntos: historialPuntos.map((p) => ({
             id: p.id,
@@ -1387,7 +1509,8 @@ function guardarEnLocal() {
             yaw: f.yaw,
             alt: f.alt,
             zoom: f.zoom,
-            hfov: f.hfov
+            hfov: f.hfov,
+            fotoPreviewURL: f.fotoPreviewURL || null
         })),
         ultimasCoordsReales
     };
@@ -1425,20 +1548,13 @@ function cargarDesdeLocal() {
     if (Array.isArray(datos.poligonos)) {
         datos.poligonos.forEach((p) => {
             if (!Array.isArray(p.coords) || p.coords.length < 3) return;
-            const poli = L.polygon(p.coords, { color: "#2ecc71", fillOpacity: 0.3 }).addTo(map);
-            const id = p.id || Date.now();
-            const vertices = [];
-            p.coords.forEach((ll) => {
-                const v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: "vertice-poligono", iconSize: [10, 10] }) }).addTo(map);
-                v.on("drag", () => {
-                    poli.setLatLngs(vertices.map((marker) => marker.getLatLng()));
-                    actualizarInfoPoligono(id);
-                    guardarEnLocal();
-                });
-                vertices.push(v);
+            const registro = crearPoligonoEditable(p.coords, p.nombre || "Area", {
+                id: p.id || Date.now(),
+                guardar: false,
+                seleccionado: p.seleccionado !== false,
+                esAutomatico: p.esAutomatico === true || p.tipo === "automatico"
             });
-            historialPoligonos.push({ id, objeto: poli, marcadores: vertices, nombre: p.nombre || "Area", areaTxt: "" });
-            actualizarInfoPoligono(id);
+            if (registro) setVisibilidadPoligono(registro, registro.seleccionado !== false);
         });
     }
 
@@ -1462,7 +1578,8 @@ function cargarDesdeLocal() {
                 yaw: typeof f.yaw === "number" ? f.yaw : null,
                 alt: typeof f.alt === "number" ? f.alt : null,
                 zoom: typeof f.zoom === "number" ? f.zoom : 1,
-                hfov: typeof f.hfov === "number" ? f.hfov : 73.74
+                hfov: typeof f.hfov === "number" ? f.hfov : 73.74,
+                fotoPreviewURL: typeof f.fotoPreviewURL === "string" ? f.fotoPreviewURL : null
             });
         });
     }
@@ -1486,13 +1603,19 @@ window.onload = function onLoad() {
     document.getElementById("btn-localizar").onclick = localizarUsuario;
     document.getElementById("btn-borrar-todo").onclick = window.borrarTodoElMapa;
     document.getElementById("btn-exportar-kml").onclick = exportarPoligonosKML;
+    const btnSeleccionarTodos = document.getElementById("btn-poligonos-seleccionar-todos");
+    if (btnSeleccionarTodos) {
+        btnSeleccionarTodos.onclick = () => seleccionarTodosLosPoligonos(true);
+    }
+    const btnSeleccionarNinguno = document.getElementById("btn-poligonos-seleccionar-ninguno");
+    if (btnSeleccionarNinguno) {
+        btnSeleccionarNinguno.onclick = () => seleccionarTodosLosPoligonos(false);
+    }
 
     const btnDJIFarm = document.getElementById("btn-dji-farm");
     if (btnDJIFarm) {
         btnDJIFarm.onclick = exportarDJIFarm;
     }
-<<<<<<< HEAD
-=======
     const btnDJITest = document.getElementById("btn-dji-test");
     if (btnDJITest) {
         btnDJITest.onclick = probarConexionDJI;
@@ -1507,7 +1630,6 @@ window.onload = function onLoad() {
             alert("La herramienta de poligono automatico no esta lista todavia.");
         };
     }
->>>>>>> 82d4ddd (actualizacion 4.3)
     bindInstalacionApp();
     addCompassControl();
     bindFotoDrone();

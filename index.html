@@ -98,9 +98,28 @@
 
                     <div style="margin-top: 15px;">
                         <small style="color: #27ae60; font-weight: bold;">Polígonos (Áreas):</small>
-                        <ul id="lista-poligonos"
-                            style="list-style: none; padding: 0; margin-top:5px; max-height: 120px; overflow-y: auto;">
-                        </ul>
+                        <div style="display: flex; gap: 5px; margin-top: 6px;">
+                            <button id="btn-poligonos-seleccionar-todos" class="tool-btn"
+                                style="flex: 1; background-color: #334155; font-size: 0.75em;">
+                                Seleccionar todos
+                            </button>
+                            <button id="btn-poligonos-seleccionar-ninguno" class="tool-btn"
+                                style="flex: 1; background-color: #334155; font-size: 0.75em;">
+                                Ninguno
+                            </button>
+                        </div>
+                        <div style="margin-top: 6px;">
+                            <small style="color:#93c5fd; font-size:0.75em;">Manuales</small>
+                            <ul id="lista-poligonos-manuales"
+                                style="list-style: none; padding: 0; margin-top:4px; max-height: 90px; overflow-y: auto; border:1px solid #374151; border-radius:6px;">
+                            </ul>
+                        </div>
+                        <div style="margin-top: 8px;">
+                            <small style="color:#86efac; font-size:0.75em;">Automáticos</small>
+                            <ul id="lista-poligonos-automaticos"
+                                style="list-style: none; padding: 0; margin-top:4px; max-height: 90px; overflow-y: auto; border:1px solid #374151; border-radius:6px;">
+                            </ul>
+                        </div>
                         <div style="display: flex; gap: 5px; margin-top: 8px;">
                             <button id="btn-exportar-kml" class="tool-btn"
                                 style="flex: 1; background-color: #16a34a;">
@@ -117,7 +136,7 @@
                         </button>
                         <button id="btn-poligono-auto" class="tool-btn"
                             style="width: 100%; margin-top: 6px; background-color: #22c55e;">
-                            Polígono Automático
+                            Polígono Automatico
                         </button>
                     </div>
                 </div>
