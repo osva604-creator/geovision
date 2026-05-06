@@ -345,7 +345,7 @@ function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
     }
 
     document.getElementById("resultado-mira").innerHTML = `Foto seleccionada: <strong>${foto.nombre}</strong>`;
-    if (foto.marcador && enfocarMapa) foto.marcador.openPopup();
+    if (foto.marcador) foto.marcador.openPopup();
 }
 
 function calcularPoligonoMaleza(datos) {
