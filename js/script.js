@@ -19,6 +19,10 @@ let deferredInstallPrompt = null;
 
 const WEATHER_API_KEY = window.WEATHER_API_KEY || "ee2057b73b750d1fae6127e3ce2d091d";
 const STORAGE_KEY = "geovision_data";
+const IDB_NAME = "geovision_db";
+const IDB_VERSION = 1;
+const IDB_STORE_FOTOS = "foto_previews";
+const IDB_STORE_APP_STATE = "app_state";
 
 const googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
     maxZoom: 21,
@@ -31,6 +35,113 @@ const map = L.map("map", {
     layers: [googleHybrid],
     doubleClickZoom: false
 });
+
+let idbPromise = null;
+
+function getIdb() {
+    if (!("indexedDB" in window)) return Promise.resolve(null);
+    if (idbPromise) return idbPromise;
+
+    idbPromise = new Promise((resolve) => {
+        const req = window.indexedDB.open(IDB_NAME, IDB_VERSION);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(IDB_STORE_FOTOS)) {
+                db.createObjectStore(IDB_STORE_FOTOS);
+            }
+            if (!db.objectStoreNames.contains(IDB_STORE_APP_STATE)) {
+                db.createObjectStore(IDB_STORE_APP_STATE);
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => {
+            console.warn("IndexedDB no disponible:", req.error);
+            resolve(null);
+        };
+    });
+
+    return idbPromise;
+}
+
+async function idbSetFotoPreview(id, previewDataUrl) {
+    const db = await getIdb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE_FOTOS, "readwrite");
+        tx.objectStore(IDB_STORE_FOTOS).put(previewDataUrl, String(id));
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+    });
+}
+
+async function idbGetFotoPreview(id) {
+    const db = await getIdb();
+    if (!db) return null;
+    return new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE_FOTOS, "readonly");
+        const req = tx.objectStore(IDB_STORE_FOTOS).get(String(id));
+        req.onsuccess = () => resolve(typeof req.result === "string" ? req.result : null);
+        req.onerror = () => resolve(null);
+    });
+}
+
+async function idbDeleteFotoPreview(id) {
+    const db = await getIdb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE_FOTOS, "readwrite");
+        tx.objectStore(IDB_STORE_FOTOS).delete(String(id));
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+    });
+}
+
+async function idbClearFotoPreviews() {
+    const db = await getIdb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE_FOTOS, "readwrite");
+        tx.objectStore(IDB_STORE_FOTOS).clear();
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+    });
+}
+
+async function idbSetAppState(data) {
+    const db = await getIdb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE_APP_STATE, "readwrite");
+        tx.objectStore(IDB_STORE_APP_STATE).put(data, STORAGE_KEY);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+    });
+}
+
+async function idbGetAppState() {
+    const db = await getIdb();
+    if (!db) return null;
+    return new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE_APP_STATE, "readonly");
+        const req = tx.objectStore(IDB_STORE_APP_STATE).get(STORAGE_KEY);
+        req.onsuccess = () => resolve(req.result && typeof req.result === "object" ? req.result : null);
+        req.onerror = () => resolve(null);
+    });
+}
+
+async function solicitarAlmacenamientoPersistente() {
+    if (!navigator.storage || typeof navigator.storage.persisted !== "function" || typeof navigator.storage.persist !== "function") {
+        return;
+    }
+    try {
+        const yaPersistente = await navigator.storage.persisted();
+        if (yaPersistente) return;
+        const concedido = await navigator.storage.persist();
+        console.log(concedido ? "Storage persistente habilitado." : "Storage persistente no concedido por el navegador.");
+    } catch (error) {
+        console.warn("No se pudo solicitar storage persistente:", error);
+    }
+}
 
 function refrescarTamanoMapa() {
     map.invalidateSize();
@@ -318,13 +429,52 @@ function generarTextoTooltipFoto(foto) {
     return `<b>${foto.nombre}</b><br>${formatearCoords(foto.lat, foto.lon)}`;
 }
 
-function archivoADataURL(file) {
+function generarMiniaturaDataURL(file, maxLado = 320, calidad = 0.7) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
-        reader.onerror = () => reject(new Error("No se pudo convertir la imagen."));
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                const escala = Math.min(1, maxLado / Math.max(img.width, img.height));
+                const ancho = Math.max(1, Math.round(img.width * escala));
+                const alto = Math.max(1, Math.round(img.height * escala));
+                const canvas = document.createElement("canvas");
+                canvas.width = ancho;
+                canvas.height = alto;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) {
+                    reject(new Error("No se pudo crear contexto de imagen."));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, ancho, alto);
+                resolve(canvas.toDataURL("image/jpeg", calidad));
+            };
+            img.onerror = () => reject(new Error("No se pudo leer la imagen para miniatura."));
+            img.src = String(reader.result || "");
+        };
+        reader.onerror = () => reject(new Error("No se pudo cargar el archivo."));
         reader.readAsDataURL(file);
     });
+}
+
+function construirPopupFotoHtml(foto, fotoURL) {
+    const imagenPopup = fotoURL || foto.fotoPreviewURL || null;
+    return imagenPopup
+        ? `<div style="text-align:center; min-width: 300px;">
+                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
+                <img src="${imagenPopup}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" onclick="window.open('${imagenPopup}', '_blank')">
+                <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa para ver imagen completa</p>
+            </div>`
+        : `<div style="text-align:center; min-width: 300px;">
+                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
+                <div style="width:100%; min-height:170px; border-radius:10px; border:1px dashed #4b5563; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:#1f2937; color:#9ca3af;">
+                    <div style="font-size:30px; line-height:1;">🖼️</div>
+                    <div style="font-size:12px; padding:0 12px;">Foto sin miniatura guardada.</div>
+                </div>
+                <p style="font-size: 12px; color: #ecf0f1; margin:10px 0 0 0;">
+                    ${foto.nombre}<br>${formatearCoords(foto.lat, foto.lon)}
+                </p>
+            </div>`;
 }
 
 function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
@@ -383,26 +533,13 @@ function crearMarcadorFoto(foto, fotoURL) {
         className: "etiqueta-punto"
     });
 
-    const imagenPopup = fotoURL || foto.fotoPreviewURL || null;
-    const htmlPopup = imagenPopup
-        ? `<div style="text-align:center; min-width: 300px;">
-                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
-                <img src="${imagenPopup}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" onclick="window.open('${imagenPopup}', '_blank')">
-                <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa para ver imagen completa</p>
-            </div>`
-        : `<div style="text-align:center; min-width: 300px;">
-                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
-                <div style="width:100%; min-height:170px; border-radius:10px; border:1px dashed #4b5563; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:#1f2937; color:#9ca3af;">
-                    <div style="font-size:30px; line-height:1;">🖼️</div>
-                    <div style="font-size:12px; padding:0 12px;">Foto sin miniatura guardada (registro anterior).</div>
-                </div>
-                <p style="font-size: 12px; color: #ecf0f1; margin:10px 0 0 0;">
-                    ${foto.nombre}<br>${formatearCoords(foto.lat, foto.lon)}
-                </p>
-            </div>`;
-
-    marker.bindPopup(htmlPopup, { maxWidth: 360, className: "popup-drone-grande" });
+    marker.bindPopup(construirPopupFotoHtml(foto, fotoURL), { maxWidth: 360, className: "popup-drone-grande" });
     return marker;
+}
+
+function refrescarPopupFoto(foto) {
+    if (!foto || !foto.marcador) return;
+    foto.marcador.setPopupContent(construirPopupFotoHtml(foto, foto.fotoURL || null));
 }
 
 function borrarFotoPorId(id) {
@@ -414,6 +551,7 @@ function borrarFotoPorId(id) {
         URL.revokeObjectURL(foto.fotoURL);
         urlsTemporalesFotos.delete(foto.fotoURL);
     }
+    idbDeleteFotoPreview(id);
     historialFotos.splice(index, 1);
     if (historialFotos.length > 0) {
         ultimasCoordsReales = { lat: historialFotos[0].lat, lon: historialFotos[0].lon };
@@ -512,6 +650,7 @@ function limpiarFotos() {
     limpiarCapaOrientacionFoto();
     urlsTemporalesFotos.forEach((url) => URL.revokeObjectURL(url));
     urlsTemporalesFotos.clear();
+    idbClearFotoPreviews();
     actualizarListaFotos();
 }
 
@@ -605,7 +744,7 @@ function bindFotoDrone() {
             ultimasCoordsReales = { lat: data.latitude, lon: data.longitude };
             const fotoURL = URL.createObjectURL(file);
             urlsTemporalesFotos.add(fotoURL);
-            const fotoPreviewURL = await archivoADataURL(file);
+            const fotoPreviewURL = await generarMiniaturaDataURL(file);
 
             if (telemetria.pitch !== null) document.getElementById("gimbal-pitch").value = Math.abs(telemetria.pitch).toFixed(1);
             if (telemetria.yaw !== null) document.getElementById("drone-heading").value = normalizarGrados(telemetria.yaw).toFixed(0);
@@ -632,6 +771,7 @@ function bindFotoDrone() {
                 },
                 fotoURL
             );
+            if (fotoPreviewURL) await idbSetFotoPreview(foto.id, fotoPreviewURL);
             foto.marcador.openPopup();
             if (telemetria.yaw !== null) {
                 mostrarOrientacionFoto(data.latitude, data.longitude, telemetria.yaw);
@@ -1509,25 +1649,21 @@ function guardarEnLocal() {
             yaw: f.yaw,
             alt: f.alt,
             zoom: f.zoom,
-            hfov: f.hfov,
-            fotoPreviewURL: f.fotoPreviewURL || null
+            hfov: f.hfov
         })),
         ultimasCoordsReales
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(datos));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(datos));
+    } catch (error) {
+        // Evita romper la app si el storage del navegador esta lleno.
+        console.warn("No se pudo guardar en localStorage:", error);
+    }
+    idbSetAppState(datos);
 }
 
-function cargarDesdeLocal() {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-
-    let datos;
-    try {
-        datos = JSON.parse(raw);
-    } catch (_e) {
-        return;
-    }
-
+function hidratarDesdeDatos(datos) {
+    if (!datos || typeof datos !== "object") return;
     if (datos.ultimasCoordsReales) {
         ultimasCoordsReales = datos.ultimasCoordsReales;
     }
@@ -1568,7 +1704,7 @@ function cargarDesdeLocal() {
     if (Array.isArray(datos.fotos)) {
         datos.fotos.forEach((f) => {
             if (typeof f.lat !== "number" || typeof f.lon !== "number") return;
-            agregarFotoHistorial({
+            const foto = agregarFotoHistorial({
                 id: f.id || Date.now(),
                 nombre: f.nombre || "Foto",
                 lat: f.lat,
@@ -1578,8 +1714,12 @@ function cargarDesdeLocal() {
                 yaw: typeof f.yaw === "number" ? f.yaw : null,
                 alt: typeof f.alt === "number" ? f.alt : null,
                 zoom: typeof f.zoom === "number" ? f.zoom : 1,
-                hfov: typeof f.hfov === "number" ? f.hfov : 73.74,
-                fotoPreviewURL: typeof f.fotoPreviewURL === "string" ? f.fotoPreviewURL : null
+                hfov: typeof f.hfov === "number" ? f.hfov : 73.74
+            });
+            idbGetFotoPreview(foto.id).then((preview) => {
+                if (!preview) return;
+                foto.fotoPreviewURL = preview;
+                refrescarPopupFoto(foto);
             });
         });
     }
@@ -1590,10 +1730,37 @@ function cargarDesdeLocal() {
     actualizarListaFotos();
 }
 
+async function cargarDesdeLocal() {
+    const datosIdb = await idbGetAppState();
+    if (datosIdb) {
+        hidratarDesdeDatos(datosIdb);
+        console.log("Carga de datos: IndexedDB");
+        return;
+    }
+
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+        console.log("Carga de datos: sin datos locales");
+        return;
+    }
+
+    try {
+        const datos = JSON.parse(raw);
+        hidratarDesdeDatos(datos);
+        // Migra el estado legacy de localStorage para futuros inicios.
+        idbSetAppState(datos);
+        console.log("Carga de datos: localStorage (migrado a IndexedDB)");
+    } catch (_e) {
+        // Si localStorage esta corrupto, no bloquea la carga.
+        console.warn("Carga de datos: localStorage corrupto, no se pudo hidratar");
+    }
+}
+
 // =========================================================
 // 8. INICIALIZACION
 // =========================================================
 window.onload = function onLoad() {
+    solicitarAlmacenamientoPersistente();
     refrescarTamanoMapa();
     requestAnimationFrame(refrescarTamanoMapa);
 
