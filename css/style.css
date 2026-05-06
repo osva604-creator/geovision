@@ -142,7 +142,7 @@ button:hover {
     background-color: var(--primary-hover);
 }
 
-#lista-puntos, #lista-medidas, #lista-poligonos, #lista-poligonos-manuales, #lista-poligonos-automaticos, #lista-fotos {
+#lista-puntos, #lista-medidas, #lista-poligonos, #lista-poligonos-manuales, #lista-poligonos-automaticos, #lista-fotos, #lista-objetivos {
     max-height: 200px;
     overflow-y: auto;
     background: rgba(18, 43, 35, 0.5);
@@ -260,6 +260,18 @@ button:hover {
 .vertice-poligono {
     background: white !important;
     border: 2px solid #27ae60 !important;
+    border-radius: 50% !important;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+}
+
+.vertice-poligono-medio {
+    background: #bbf7d0 !important;
+    border-color: #16a34a !important;
+}
+
+.vertice-linea {
+    background: white !important;
+    border: 2px solid #3498db !important;
     border-radius: 50% !important;
     box-shadow: 0 0 5px rgba(0,0,0,0.5);
 }

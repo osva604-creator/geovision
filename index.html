@@ -69,6 +69,12 @@
                     <button id="btn-proyectar" class="tool-btn tool-btn-danger" style="width: 100%;">🎯 Calcular Punto
                         Objetivo</button>
                     <div id="resultado-mira" style="margin-top:10px; color: #f1c40f;"></div>
+                    <div style="margin-top: 10px;">
+                        <small style="color:#f1c40f; font-weight:bold;">Objetivos buscados:</small>
+                        <ul id="lista-objetivos"
+                            style="list-style: none; padding: 0; margin-top:5px; max-height: 110px; overflow-y: auto; border:1px solid #374151; border-radius:6px;">
+                        </ul>
+                    </div>
                 </div>
 
                 <hr>
@@ -137,6 +143,17 @@
                             style="width: 100%; margin-top: 6px; background-color: #22c55e;">
                             Polígono Automatico
                         </button>
+                        <div style="display:flex; gap:5px; margin-top:6px; align-items:center;">
+                            <select id="tamano-baldosa-auto" style="flex:1; min-width:0;">
+                                <option value="100">100 x 100 m</option>
+                                <option value="50">50 x 50 m</option>
+                                <option value="25">25 x 25 m</option>
+                            </select>
+                            <select id="modo-poligono-auto" style="flex:1; min-width:0;">
+                                <option value="baldosa">Baldosa fija</option>
+                                <option value="zoom">Por zoom</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 

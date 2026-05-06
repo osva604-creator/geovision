@@ -11,11 +11,13 @@ let historialMediciones = [];
 let historialPoligonos = [];
 let historialPuntos = [];
 let historialFotos = [];
+let historialObjetivos = [];
 const urlsTemporalesFotos = new Set();
 let capaOrientacionFoto = null;
 let capaVisionCalculada = null;
 let ultimaTelemetriaFoto = { zoom: 1, hfov: 73.74 };
 let deferredInstallPrompt = null;
+let estaHidratando = false;
 let ultimoHtmlCoords = "<strong>Mi Ubicacion:</strong><br>Esperando señal GPS...";
 let ultimoHtmlClimaLocal = "";
 
@@ -25,6 +27,7 @@ const IDB_NAME = "geovision_db";
 const IDB_VERSION = 1;
 const IDB_STORE_FOTOS = "foto_previews";
 const IDB_STORE_APP_STATE = "app_state";
+const PITCH_GIMBAL_DEFAULT = 25;
 
 const googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
     maxZoom: 21,
@@ -193,87 +196,195 @@ function normalizarClave(tag) {
         .replace(/[^a-z0-9]/g, "");
 }
 
-function parseNumero(valor) {
-    if (typeof valor === "number" && Number.isFinite(valor)) return valor;
-    if (Array.isArray(valor)) {
-        for (const item of valor) {
-            const n = parseNumero(item);
-            if (n !== null) return n;
-        }
-        return null;
-    }
-    if (valor && typeof valor === "object") {
-        if (typeof valor.numerator === "number" && typeof valor.denominator === "number" && valor.denominator !== 0) {
-            return valor.numerator / valor.denominator;
-        }
-        if ("value" in valor) return parseNumero(valor.value);
-        return null;
-    }
-    if (typeof valor !== "string") return null;
-    const match = valor.replace(",", ".").match(/-?\d+(\.\d+)?/);
-    if (!match) return null;
-    const parsed = Number.parseFloat(match[0]);
-    return Number.isFinite(parsed) ? parsed : null;
+function escapeHtml(valor) {
+    return String(valor ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 
-function recolectarCamposNumericos(origen) {
-    const out = {};
-    if (!origen || typeof origen !== "object") return out;
-    const stack = [origen];
+function escapeAttr(valor) {
+    return escapeHtml(valor).replace(/`/g, "&#96;");
+}
+
+function extraerNumeros(valor) {
+    if (typeof valor === "number" && Number.isFinite(valor)) return [valor];
+    if (Array.isArray(valor)) return valor.flatMap((item) => extraerNumeros(item));
+    if (valor && typeof valor === "object") {
+        if (typeof valor.numerator === "number" && typeof valor.denominator === "number" && valor.denominator !== 0) {
+            return [valor.numerator / valor.denominator];
+        }
+        if ("value" in valor) return extraerNumeros(valor.value);
+        return [];
+    }
+    if (typeof valor !== "string") return [];
+    const matches = valor.match(/-?\d+(?:[.,]\d+)?/g);
+    if (!matches) return [];
+    return matches
+        .map((item) => Number.parseFloat(item.replace(",", ".")))
+        .filter(Number.isFinite);
+}
+
+function recolectarCamposNumericosDetallados(origen) {
+    const campos = {};
+    const fuentes = {};
+    if (!origen || typeof origen !== "object") return { campos, fuentes };
+
+    const stack = [{ valor: origen, ruta: "" }];
     while (stack.length > 0) {
         const actual = stack.pop();
-        if (!actual || typeof actual !== "object") continue;
-        Object.entries(actual).forEach(([k, v]) => {
-            const numero = parseNumero(v);
-            if (numero !== null) {
-                const key = normalizarClave(k);
-                if (!(key in out)) out[key] = numero;
+        if (!actual.valor || typeof actual.valor !== "object") continue;
+
+        Object.entries(actual.valor).forEach(([k, v]) => {
+            const key = normalizarClave(k);
+            const ruta = actual.ruta ? `${actual.ruta}.${k}` : k;
+            const numeros = extraerNumeros(v);
+            if (numeros.length > 0 && !(key in campos)) {
+                campos[key] = numeros[0];
+                fuentes[key] = { ruta, numeros, raw: v };
             }
             if (v && typeof v === "object") {
-                stack.push(v);
-                return;
+                stack.push({ valor: v, ruta });
             }
         });
     }
-    return out;
+
+    return { campos, fuentes };
 }
 
-function obtenerPrimerCampo(campos, candidatos) {
-    const claves = Object.keys(campos);
-    for (const candidato of candidatos) {
-        const key = normalizarClave(candidato);
-        if (key in campos) return campos[key];
-        const encontrada = claves.find((k) => k.endsWith(key) || k.includes(key));
-        if (encontrada) return campos[encontrada];
+function resumirValorDebug(valor) {
+    if (valor === null || typeof valor === "undefined") return String(valor);
+    if (typeof valor === "number" || typeof valor === "boolean") return String(valor);
+    if (typeof valor === "string") return valor.length > 120 ? `${valor.slice(0, 117)}...` : valor;
+    try {
+        const json = JSON.stringify(valor);
+        return json.length > 120 ? `${json.slice(0, 117)}...` : json;
+    } catch (_error) {
+        return Object.prototype.toString.call(valor);
     }
-    return null;
+}
+
+function recolectarCamposDebug(origen, patrones) {
+    const encontrados = [];
+    if (!origen || typeof origen !== "object") return encontrados;
+
+    const stack = [{ valor: origen, ruta: "" }];
+    while (stack.length > 0) {
+        const actual = stack.pop();
+        if (!actual.valor || typeof actual.valor !== "object") continue;
+
+        Object.entries(actual.valor).forEach(([k, v]) => {
+            const ruta = actual.ruta ? `${actual.ruta}.${k}` : k;
+            const key = normalizarClave(ruta);
+            if (patrones.some((patron) => key.includes(patron))) {
+                encontrados.push(`${ruta}: ${resumirValorDebug(v)}`);
+            }
+            if (v && typeof v === "object") {
+                stack.push({ valor: v, ruta });
+            }
+        });
+    }
+
+    return encontrados.slice(0, 60);
+}
+
+function resolverCandidatoTelemetria(campos, fuentes, candidatos, opciones = {}) {
+    const claves = Object.keys(campos);
+    let fallbackCero = null;
+    for (const candidato of candidatos) {
+        const config = typeof candidato === "string" ? { nombre: candidato } : candidato;
+        const key = normalizarClave(config.nombre);
+        let encontrada = null;
+        if (key in campos) {
+            encontrada = key;
+        } else {
+            encontrada = claves.find((k) => k.endsWith(key) || k.includes(key));
+        }
+
+        if (!encontrada) continue;
+        const fuente = fuentes[encontrada] || {};
+        const numeros = Array.isArray(fuente.numeros) ? fuente.numeros : [campos[encontrada]];
+        const indice = typeof config.indice === "number" ? config.indice : 0;
+        const valor = numeros[indice];
+        if (Number.isFinite(valor)) {
+            const resultado = {
+                valor,
+                fuente: fuente.ruta || encontrada,
+                candidato: config.nombre,
+                numeros
+            };
+            if (opciones.preferirNoCero && Math.abs(valor) < 0.0001) {
+                if (!fallbackCero) fallbackCero = resultado;
+                continue;
+            }
+            return resultado;
+        }
+    }
+    if (fallbackCero) return fallbackCero;
+    return { valor: null, fuente: null, candidato: null, numeros: [] };
 }
 
 function extraerTelemetria(data) {
-    const campos = recolectarCamposNumericos(data);
-    const zoomRaw = obtenerPrimerCampo(campos, [
+    const { campos, fuentes } = recolectarCamposNumericosDetallados(data);
+    const zoomDetectado = resolverCandidatoTelemetria(campos, fuentes, [
         "DigitalZoomRatio", "ZoomRatio", "Zoom", "drone-dji:DigitalZoomRatio"
     ]);
+    const pitchDetectado = resolverCandidatoTelemetria(campos, fuentes, [
+        "GimbalPitchDegree", "drone-dji:GimbalPitchDegree", "CameraGimbalPitchDegree",
+        "CameraPitchDegree", "CameraPitch", "GimbalPitch", "GimbalPitchAngle",
+        { nombre: "GimbalDegree", indice: 1 },
+        { nombre: "GimbalRollPitchYaw", indice: 1 },
+        { nombre: "GimbalRollPitchYawDegree", indice: 1 },
+        { nombre: "CameraGimbalRollPitchYaw", indice: 1 },
+        { nombre: "CameraGimbalRollPitchYawDegree", indice: 1 },
+        { nombre: "GimbalRPY", indice: 1 },
+        "FlightPitchDegree",
+        "Pitch"
+    ], { preferirNoCero: true });
+    const yawDetectado = resolverCandidatoTelemetria(campos, fuentes, [
+        "FlightYawDegree", "drone-dji:FlightYawDegree", "DroneYawDegree", "GPSImgDirection", "Heading",
+        "GimbalYawDegree", "drone-dji:GimbalYawDegree", "CameraGimbalYawDegree",
+        "CameraYawDegree", "CameraYaw", "GimbalYaw", "GimbalYawAngle",
+        { nombre: "GimbalRollPitchYaw", indice: 2 },
+        { nombre: "GimbalRollPitchYawDegree", indice: 2 },
+        { nombre: "GimbalRPY", indice: 2 },
+        "Yaw"
+    ]);
+    const altDetectada = resolverCandidatoTelemetria(campos, fuentes, [
+        "RelativeAltitude", "AbsoluteAltitude", "GPSAltitude", "Altitude", "DroneAltitude",
+        "drone-dji:RelativeAltitude", "drone-dji:AbsoluteAltitude"
+    ]);
+
+    const zoomRaw = zoomDetectado.valor;
     const zoom = Number.isFinite(zoomRaw) && zoomRaw > 0 ? zoomRaw : 1;
     const focalEquiv = 24 / zoom;
     const hfov = 2 * Math.atan(18 / focalEquiv) * (180 / Math.PI);
 
+    const pitchFinal = Number.isFinite(pitchDetectado.valor) && Math.abs(pitchDetectado.valor) >= 0.0001
+        ? pitchDetectado.valor
+        : PITCH_GIMBAL_DEFAULT;
+    const pitchUsaDefault = pitchFinal === PITCH_GIMBAL_DEFAULT && (!Number.isFinite(pitchDetectado.valor) || Math.abs(pitchDetectado.valor) < 0.0001);
+
     return {
-        pitch: obtenerPrimerCampo(campos, [
-            "GimbalPitchDegree", "FlightPitchDegree", "CameraPitch", "GimbalPitch", "Pitch",
-            "drone-dji:GimbalPitchDegree", "drone-dji:FlightPitchDegree", "GimbalDegree",
-            "gimbalrollpitchyaw", "camera:gimbalpitchdegree"
-        ]),
-        yaw: obtenerPrimerCampo(campos, [
-            "FlightYawDegree", "GimbalYawDegree", "DroneYawDegree", "GPSImgDirection", "Heading", "Yaw",
-            "drone-dji:FlightYawDegree", "drone-dji:GimbalYawDegree"
-        ]),
-        alt: obtenerPrimerCampo(campos, [
-            "RelativeAltitude", "AbsoluteAltitude", "GPSAltitude", "Altitude", "DroneAltitude",
-            "drone-dji:RelativeAltitude", "drone-dji:AbsoluteAltitude"
-        ]),
+        pitch: pitchFinal,
+        yaw: yawDetectado.valor,
+        alt: altDetectada.valor,
         zoom,
-        hfov
+        hfov,
+        fuentes: {
+            pitch: pitchUsaDefault ? `valor por defecto (${PITCH_GIMBAL_DEFAULT}°)` : pitchDetectado.fuente,
+            yaw: yawDetectado.fuente,
+            alt: altDetectada.fuente,
+            zoom: zoomDetectado.fuente
+        },
+        candidatos: {
+            pitch: pitchUsaDefault ? "defaultPitch" : pitchDetectado.candidato,
+            yaw: yawDetectado.candidato,
+            alt: altDetectada.candidato,
+            zoom: zoomDetectado.candidato
+        }
     };
 }
 
@@ -303,10 +414,50 @@ function limpiarVisionCalculada() {
     capaVisionCalculada = null;
 }
 
+function obtenerLatLngPlano(valor) {
+    if (Array.isArray(valor)) return { lat: Number(valor[0]), lng: Number(valor[1]) };
+    return { lat: Number(valor.lat), lng: Number(valor.lng ?? valor.lon) };
+}
+
+function puntoMedioLatLng(a, b) {
+    const puntoA = obtenerLatLngPlano(a);
+    const puntoB = obtenerLatLngPlano(b);
+    return [(puntoA.lat + puntoB.lat) / 2, (puntoA.lng + puntoB.lng) / 2];
+}
+
+function agregarPuntosMediosSiCuadrilatero(coords) {
+    if (!Array.isArray(coords) || coords.length !== 4) return coords;
+    const densificados = [];
+    coords.forEach((actual, index) => {
+        const siguiente = coords[(index + 1) % coords.length];
+        densificados.push(actual);
+        densificados.push(puntoMedioLatLng(actual, siguiente));
+    });
+    return densificados;
+}
+
+function formatearDistancia(distancia) {
+    return distancia > 1000 ? `${(distancia / 1000).toFixed(2)}km` : `${distancia.toFixed(1)}m`;
+}
+
+function actualizarTooltipsVerticesPoligono(vertices) {
+    if (!Array.isArray(vertices) || vertices.length < 2) return;
+    vertices.forEach((marker, index) => {
+        const actual = marker.getLatLng();
+        const siguiente = vertices[(index + 1) % vertices.length].getLatLng();
+        const distancia = map.distance(actual, siguiente);
+        marker.bindTooltip(`Siguiente: ${formatearDistancia(distancia)}`, {
+            direction: "top",
+            className: "etiqueta-medicion"
+        });
+    });
+}
+
 function crearPoligonoEditable(coords, nombre, opciones = {}) {
     if (!Array.isArray(coords) || coords.length < 3) return null;
     const id = opciones.id || Date.now();
-    const poli = L.polygon(coords, {
+    const coordsEditables = agregarPuntosMediosSiCuadrilatero(coords);
+    const poli = L.polygon(coordsEditables, {
         color: opciones.color || "#2ecc71",
         weight: typeof opciones.weight === "number" ? opciones.weight : 2,
         fillColor: opciones.fillColor || opciones.color || "#2ecc71",
@@ -314,10 +465,13 @@ function crearPoligonoEditable(coords, nombre, opciones = {}) {
     }).addTo(map);
 
     const vertices = [];
-    coords.forEach((ll) => {
-        const v = L.marker(ll, { draggable: true, icon: L.divIcon({ className: "vertice-poligono", iconSize: [10, 10] }) }).addTo(map);
+    coordsEditables.forEach((ll, index) => {
+        const esPuntoMedio = coords.length === 4 && index % 2 === 1;
+        const className = esPuntoMedio ? "vertice-poligono vertice-poligono-medio" : "vertice-poligono";
+        const v = L.marker(ll, { draggable: true, icon: L.divIcon({ className, iconSize: [10, 10] }) }).addTo(map);
         v.on("drag", () => {
             poli.setLatLngs(vertices.map((marker) => marker.getLatLng()));
+            actualizarTooltipsVerticesPoligono(vertices);
             actualizarInfoPoligono(id);
             guardarEnLocal();
         });
@@ -334,6 +488,7 @@ function crearPoligonoEditable(coords, nombre, opciones = {}) {
         esAutomatico: opciones.esAutomatico === true
     };
     historialPoligonos.push(registro);
+    actualizarTooltipsVerticesPoligono(vertices);
     actualizarInfoPoligono(id);
     setVisibilidadPoligono(registro, registro.seleccionado !== false);
     if (opciones.guardar !== false) guardarEnLocal();
@@ -428,7 +583,7 @@ function mostrarLineaVision(origen, destino, rumbo) {
 }
 
 function generarTextoTooltipFoto(foto) {
-    return `<b>${foto.nombre}</b><br>${formatearCoords(foto.lat, foto.lon)}`;
+    return `<b>${escapeHtml(foto.nombre)}</b><br>${formatearCoords(foto.lat, foto.lon)}`;
 }
 
 function generarMiniaturaDataURL(file, maxLado = 320, calidad = 0.7) {
@@ -461,10 +616,14 @@ function generarMiniaturaDataURL(file, maxLado = 320, calidad = 0.7) {
 
 function construirPopupFotoHtml(foto, fotoURL) {
     const imagenPopup = fotoURL || foto.fotoPreviewURL || null;
+    const nombreSeguro = escapeHtml(foto.nombre);
+    const imagenSegura = imagenPopup ? escapeAttr(imagenPopup) : null;
     return imagenPopup
         ? `<div style="text-align:center; min-width: 300px;">
                 <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
-                <img src="${imagenPopup}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;" onclick="window.open('${imagenPopup}', '_blank')">
+                <a href="${imagenSegura}" target="_blank" rel="noopener">
+                    <img src="${imagenSegura}" alt="${nombreSeguro}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;">
+                </a>
                 <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa para ver imagen completa</p>
             </div>`
         : `<div style="text-align:center; min-width: 300px;">
@@ -474,7 +633,7 @@ function construirPopupFotoHtml(foto, fotoURL) {
                     <div style="font-size:12px; padding:0 12px;">Foto sin miniatura guardada.</div>
                 </div>
                 <p style="font-size: 12px; color: #ecf0f1; margin:10px 0 0 0;">
-                    ${foto.nombre}<br>${formatearCoords(foto.lat, foto.lon)}
+                    ${nombreSeguro}<br>${formatearCoords(foto.lat, foto.lon)}
                 </p>
             </div>`;
 }
@@ -496,17 +655,20 @@ function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
         if (enfocarMapa) map.flyTo([foto.lat, foto.lon], 19);
     }
 
-    document.getElementById("resultado-mira").innerHTML = `Foto seleccionada: <strong>${foto.nombre}</strong>`;
+    document.getElementById("resultado-mira").innerHTML = `Foto seleccionada: <strong>${escapeHtml(foto.nombre)}</strong>`;
     if (foto.marcador) foto.marcador.openPopup();
 }
 
 function calcularPoligonoMaleza(datos) {
-    const { origenLat, origenLng, altitud, hfov, yaw, distanciaAlSuelo } = datos;
+    const { origenLat, origenLng, altitud, hfov, yaw, distanciaAlSuelo, anchoManual, modoCalculo } = datos;
     if (![origenLat, origenLng, altitud, hfov, yaw, distanciaAlSuelo].every(Number.isFinite)) return null;
     if (altitud <= 0 || hfov <= 0 || distanciaAlSuelo < 0) return null;
 
     const centroObjetivo = proyectar(origenLat, origenLng, distanciaAlSuelo, normalizarGrados(yaw));
-    const anchoSuelo = 100;
+    const anchoZoom = 2 * Math.sqrt((altitud ** 2) + (distanciaAlSuelo ** 2)) * Math.tan((hfov * Math.PI / 180) / 2);
+    const anchoSuelo = modoCalculo === "zoom"
+        ? Math.max(1, anchoZoom)
+        : (Number.isFinite(anchoManual) && anchoManual > 0 ? anchoManual : 100);
 
     const mitadLado = anchoSuelo / 2;
     const distanciaEsquina = Math.sqrt((mitadLado ** 2) * 2);
@@ -521,11 +683,121 @@ function calcularPoligonoMaleza(datos) {
         { color: "#2ecc71", weight: 2, fillColor: "#2ecc71", fillOpacity: 0.18, guardar: false, seleccionado: true, esAutomatico: true }
     );
     if (!poligono) return null;
-    poligono.objeto.bindTooltip(`Cobertura maleza: ${anchoSuelo.toFixed(0)} x ${anchoSuelo.toFixed(0)} m (editable)`, { direction: "top" });
+    const etiquetaModo = modoCalculo === "zoom" ? "zoom/HFOV" : "baldosa fija";
+    poligono.objeto.bindTooltip(`Cobertura maleza: ${anchoSuelo.toFixed(1)} x ${anchoSuelo.toFixed(1)} m (${etiquetaModo}, editable)`, { direction: "top" });
     guardarEnLocal();
 
-    console.log(`Generando cuadrado de ${anchoSuelo.toFixed(0)}x${anchoSuelo.toFixed(0)}m para maleza.`);
-    return { centroObjetivo, anchoSuelo };
+    console.log(`Generando cuadrado de ${anchoSuelo.toFixed(1)}x${anchoSuelo.toFixed(1)}m para maleza (${etiquetaModo}).`);
+    return { centroObjetivo, anchoSuelo, modoCalculo: etiquetaModo };
+}
+
+function crearObjetivoHistorial(datos, opciones = {}) {
+    if (!datos || !datos.obj || !datos.origen) return null;
+    const id = opciones.id || Date.now();
+    const destino = { lat: datos.obj.lat, lon: datos.obj.lon };
+    const origen = { lat: datos.origen.lat, lon: datos.origen.lon };
+    const distancia = Number.isFinite(datos.distH) ? datos.distH : map.distance([origen.lat, origen.lon], [destino.lat, destino.lon]);
+    const rumbo = Number.isFinite(datos.rumbo) ? normalizarGrados(datos.rumbo) : 0;
+    const nombre = opciones.nombre || `Objetivo ${historialObjetivos.length + 1}`;
+    const puntoFlecha = proyectar(origen.lat, origen.lon, distancia * 0.72, rumbo);
+
+    const marcador = L.marker([destino.lat, destino.lon], { icon: iconoMira })
+        .bindPopup(
+            `<div style="text-align:center;">
+                <strong style="color:#2980b9;">${escapeHtml(nombre)}</strong><br>
+                <small>${decimalADMS(destino.lat, true)}<br>${decimalADMS(destino.lon, false)}</small><br>
+                <hr style="margin:5px 0;">
+                <span>Distancia: <strong>${distancia.toFixed(1)} m</strong></span>
+            </div>`
+        );
+    const linea = L.polyline(
+        [
+            [origen.lat, origen.lon],
+            [destino.lat, destino.lon]
+        ],
+        { color: "#db4a34", weight: 4, dashArray: "5,10", opacity: 1 }
+    );
+    const flecha = L.marker([puntoFlecha.lat, puntoFlecha.lon], { icon: crearIconoFlecha(rumbo, "#db4a34", 24) })
+        .bindTooltip("Direccion de vision", { direction: "top" });
+    const grupo = L.layerGroup([linea, flecha, marcador]);
+
+    const registro = {
+        id,
+        nombre,
+        origen,
+        destino,
+        rumbo,
+        distancia,
+        objeto: grupo,
+        marcador,
+        seleccionado: opciones.seleccionado !== false
+    };
+    historialObjetivos.unshift(registro);
+    setVisibilidadObjetivo(registro, registro.seleccionado !== false);
+    actualizarListaObjetivos();
+    if (opciones.guardar !== false) guardarEnLocal();
+    if (opciones.abrirPopup !== false) marcador.openPopup();
+    return registro;
+}
+
+function setVisibilidadObjetivo(objetivo, visible) {
+    if (!objetivo || !objetivo.objeto) return;
+    const objetivoVisible = visible !== false;
+    objetivo.seleccionado = objetivoVisible;
+    if (objetivoVisible) {
+        if (!map.hasLayer(objetivo.objeto)) objetivo.objeto.addTo(map);
+    } else if (map.hasLayer(objetivo.objeto)) {
+        map.removeLayer(objetivo.objeto);
+    }
+}
+
+function actualizarListaObjetivos() {
+    const ui = document.getElementById("lista-objetivos");
+    if (!ui) return;
+    ui.innerHTML = "";
+    historialObjetivos.forEach((objetivo) => {
+        const li = document.createElement("li");
+        li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
+        const cont = document.createElement("div");
+        cont.style.cssText = "display:flex; flex-direction:column; min-width:0;";
+        const filaTitulo = document.createElement("div");
+        filaTitulo.style.cssText = "display:flex; align-items:center; gap:6px;";
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.checked = objetivo.seleccionado !== false;
+        check.title = "Mostrar/Ocultar";
+        check.addEventListener("change", () => {
+            setVisibilidadObjetivo(objetivo, check.checked);
+            guardarEnLocal();
+        });
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = objetivo.nombre;
+        input.style.cssText = "background:none; border:1px solid #555; color:#f1c40f; width:105px; font-size:0.8em;";
+        input.addEventListener("change", () => window.cambiarNombreObjetivo(objetivo.id, input.value));
+        input.addEventListener("dblclick", () => {
+            if (objetivo.seleccionado === false) setVisibilidadObjetivo(objetivo, true);
+            map.flyTo([objetivo.destino.lat, objetivo.destino.lon], 19);
+            objetivo.marcador.openPopup();
+        });
+        const meta = document.createElement("small");
+        meta.style.color = "#aaa";
+        meta.innerText = formatearDistancia(objetivo.distancia);
+        filaTitulo.appendChild(check);
+        filaTitulo.appendChild(input);
+        cont.appendChild(filaTitulo);
+        cont.appendChild(meta);
+
+        const boton = document.createElement("button");
+        boton.type = "button";
+        boton.innerText = "🗑️";
+        boton.style.cssText = "background:none; color:red; border:none; cursor:pointer;";
+        boton.addEventListener("click", () => window.borrarObjetivo(objetivo.id));
+
+        li.appendChild(cont);
+        li.appendChild(boton);
+        ui.appendChild(li);
+    });
 }
 
 function crearMarcadorFoto(foto, fotoURL) {
@@ -660,13 +932,20 @@ function actualizarDebugExif(data, telemetria, faltantes) {
     const ui = document.getElementById("debug-exif-contenido");
     if (!ui) return;
 
-    const campos = recolectarCamposNumericos(data);
+    const { campos } = recolectarCamposNumericosDetallados(data);
     const claves = Object.keys(campos).sort().slice(0, 30);
+    const candidatosDebug = recolectarCamposDebug(data, ["gimbal", "pitch", "yaw", "camera", "flight", "drone"]);
     const lineas = [
         `pitch: ${telemetria.pitch !== null ? telemetria.pitch : "N/A"}`,
+        `pitch fuente: ${telemetria.fuentes && telemetria.fuentes.pitch ? telemetria.fuentes.pitch : "N/A"}`,
         `heading: ${telemetria.yaw !== null ? telemetria.yaw : "N/A"}`,
+        `heading fuente: ${telemetria.fuentes && telemetria.fuentes.yaw ? telemetria.fuentes.yaw : "N/A"}`,
         `altitud: ${telemetria.alt !== null ? telemetria.alt : "N/A"}`,
+        `altitud fuente: ${telemetria.fuentes && telemetria.fuentes.alt ? telemetria.fuentes.alt : "N/A"}`,
         `faltantes: ${faltantes.length ? faltantes.join(", ") : "ninguno"}`,
+        "",
+        "Campos candidatos de camara/gimbal:",
+        ...(candidatosDebug.length ? candidatosDebug.map((item) => `- ${item}`) : ["- ninguno"]),
         "",
         "Campos numericos detectados (primeros 30):",
         ...claves.map((k) => `- ${k}: ${campos[k]}`)
@@ -698,7 +977,7 @@ function actualizarEstadoImportacion(tipo, detalle) {
 
     estadoDiv.style.background = estilo.bg;
     estadoDiv.style.color = estilo.fg;
-    estadoDiv.innerHTML = `Estado: <strong>${estilo.label}</strong>${detalle ? `<br><small>${detalle}</small>` : ""}`;
+    estadoDiv.innerHTML = `Estado: <strong>${escapeHtml(estilo.label)}</strong>${detalle ? `<br><small>${escapeHtml(detalle)}</small>` : ""}`;
 }
 
 function limpiarMarcadoresTemporales() {
@@ -753,7 +1032,7 @@ function bindFotoDrone() {
             if (telemetria.alt !== null) document.getElementById("manual-alt").value = Math.abs(telemetria.alt).toFixed(0);
             ultimaTelemetriaFoto = { zoom: telemetria.zoom, hfov: telemetria.hfov };
 
-            document.getElementById("telemetria-drone").innerHTML = `<strong>Foto:</strong> ${file.name}<br>${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}`;
+            document.getElementById("telemetria-drone").innerHTML = `<strong>Foto:</strong> ${escapeHtml(file.name)}<br>${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}`;
 
             if (btnClimaVuelo) btnClimaVuelo.style.display = "block";
 
@@ -782,7 +1061,7 @@ function bindFotoDrone() {
                 map.flyTo([data.latitude, data.longitude], 19);
             }
             if (faltantes.length === 0) {
-                actualizarEstadoImportacion("ok", "Telemetria de vuelo cargada");
+                actualizarEstadoImportacion("ok", `Telemetria cargada. Pitch: ${telemetria.fuentes.pitch || "sin fuente"}; heading: ${telemetria.fuentes.yaw || "sin fuente"}`);
             } else {
                 actualizarEstadoImportacion("ok", `GPS cargado; no se encontro: ${faltantes.join(", ")}`);
             }
@@ -799,6 +1078,8 @@ function bindProyeccion() {
     const inputAltitud = document.getElementById("manual-alt");
     const inputPitch = document.getElementById("gimbal-pitch");
     const inputHeading = document.getElementById("drone-heading");
+    const selectTamanoBaldosa = document.getElementById("tamano-baldosa-auto");
+    const selectModoPoligono = document.getElementById("modo-poligono-auto");
     const resolverDatosObjetivo = () => {
         if (!ultimasCoordsReales) {
             alert("Primero debes subir una foto del drone.");
@@ -847,23 +1128,7 @@ function bindProyeccion() {
         const datos = resolverDatosObjetivo();
         if (!datos) return;
 
-        L.marker([datos.obj.lat, datos.obj.lon], { icon: iconoMira })
-            .addTo(map)
-            .bindPopup(
-                `<div style="text-align:center;">
-                    <strong style="color:#2980b9;">Objetivo calculado</strong><br>
-                    <small>${decimalADMS(datos.obj.lat, true)}<br>${decimalADMS(datos.obj.lon, false)}</small><br>
-                    <hr style="margin:5px 0;">
-                    <span>Distancia: <strong>${datos.distH.toFixed(1)} m</strong></span>
-                </div>`
-            )
-            .openPopup();
-
-        mostrarLineaVision(
-            datos.origen,
-            { lat: datos.obj.lat, lon: datos.obj.lon },
-            datos.rumbo
-        );
+        crearObjetivoHistorial(datos);
         document.getElementById("resultado-mira").innerHTML = `Objetivo a ${datos.distH.toFixed(1)} m | Zoom x${ultimaTelemetriaFoto.zoom.toFixed(2)}`;
         map.flyTo([datos.obj.lat, datos.obj.lon], 19);
     };
@@ -878,11 +1143,13 @@ function bindProyeccion() {
             altitud: datos.alt,
             hfov: ultimaTelemetriaFoto.hfov,
             yaw: datos.rumbo,
-            distanciaAlSuelo: datos.distH
+            distanciaAlSuelo: datos.distH,
+            anchoManual: Number.parseFloat(selectTamanoBaldosa?.value || "100"),
+            modoCalculo: selectModoPoligono?.value || "baldosa"
         });
 
         document.getElementById("resultado-mira").innerHTML = bufferMaleza
-            ? `Poligono automatico: ${bufferMaleza.anchoSuelo.toFixed(0)} x ${bufferMaleza.anchoSuelo.toFixed(0)} m | Distancia objetivo ${datos.distH.toFixed(1)} m`
+            ? `Poligono automatico: ${bufferMaleza.anchoSuelo.toFixed(1)} x ${bufferMaleza.anchoSuelo.toFixed(1)} m | ${bufferMaleza.modoCalculo} | Distancia objetivo ${datos.distH.toFixed(1)} m`
             : "No se pudo generar el poligono automatico.";
         map.flyTo([datos.obj.lat, datos.obj.lon], 19);
     };
@@ -905,9 +1172,10 @@ function renderClima(infoDiv, data, color) {
     const temp = data.main.temp;
     const viento = data.wind.speed * 3.6;
     const humedad = data.main.humidity;
-    const desc = data.weather[0].description;
-    const climaHtml = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid ${color}; margin-top:5px;">
-        <span style="text-transform: capitalize; font-weight: bold; color:${color};">${desc}</span><br>
+    const desc = escapeHtml(data.weather[0].description);
+    const colorSeguro = /^#[0-9a-f]{3,8}$/i.test(color) ? color : "#3498db";
+    const climaHtml = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid ${colorSeguro}; margin-top:5px;">
+        <span style="text-transform: capitalize; font-weight: bold; color:${colorSeguro};">${desc}</span><br>
         🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
         💧 <b>Humedad:</b> ${humedad}%<br>
         💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
@@ -936,7 +1204,7 @@ function bindClima() {
                 ultimoHtmlClimaLocal = renderClima(null, data, "#2980b9");
                 actualizarPanelUbicacion();
             } catch (e) {
-                ultimoHtmlClimaLocal = `<small style="color:#fca5a5;">Error al obtener clima local: ${e.message || "sin detalle"}.</small>`;
+                ultimoHtmlClimaLocal = `<small style="color:#fca5a5;">Error al obtener clima local: ${escapeHtml(e.message || "sin detalle")}.</small>`;
                 actualizarPanelUbicacion();
             }
         }, () => {
@@ -999,7 +1267,7 @@ function agregarPuntoManual(latlng, nombre) {
     const id = Date.now() + Math.floor(Math.random() * 1000);
     const nombreFinal = nombre || `Punto ${historialPuntos.length + 1}`;
     const m = L.marker(latlng, { icon: droneIcon, draggable: true }).addTo(map);
-    m.bindTooltip(nombreFinal, { permanent: true, direction: "top", className: "etiqueta-punto" }).openTooltip();
+    m.bindTooltip(escapeHtml(nombreFinal), { permanent: true, direction: "top", className: "etiqueta-punto" }).openTooltip();
     m.on("dragend", () => {
         const p = historialPuntos.find((x) => x.id === id);
         if (p) {
@@ -1012,6 +1280,77 @@ function agregarPuntoManual(latlng, nombre) {
     historialPuntos.push({ id, m, nombre: nombreFinal, lat: latlng.lat, lng: latlng.lng });
     actualizarListaPuntos();
     guardarEnLocal();
+}
+
+function actualizarTooltipsLinea(medicion) {
+    if (!medicion || !Array.isArray(medicion.marcadores) || medicion.marcadores.length < 2) return;
+    const distancia = map.distance(medicion.marcadores[0].getLatLng(), medicion.marcadores[1].getLatLng());
+    const txt = formatearDistancia(distancia);
+    medicion.distancia = distancia;
+    medicion.marcadores.forEach((marker) => {
+        marker.bindTooltip(`Distancia: ${txt}`, {
+            direction: "top",
+            className: "etiqueta-medicion"
+        });
+    });
+    medicion.linea.bindTooltip(`<b>${escapeHtml(medicion.nombre)}</b><br>${txt}`, {
+        permanent: true,
+        direction: "center",
+        className: "etiqueta-medicion"
+    }).openTooltip();
+}
+
+function crearLineaEditable(coords, nombre, opciones = {}) {
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    const id = opciones.id || Date.now();
+    const puntos = [coords[0], coords[1]];
+    const linea = L.polyline(puntos, { color: "#3498db", weight: 3 }).addTo(map);
+    const marcadores = puntos.map((ll) => L.marker(ll, {
+        draggable: true,
+        icon: L.divIcon({ className: "vertice-linea", iconSize: [10, 10] })
+    }).addTo(map));
+
+    const medicion = {
+        id,
+        linea,
+        marcadores,
+        distancia: Number(opciones.distancia) || map.distance(puntos[0], puntos[1]),
+        nombre: nombre || `Medida ${historialMediciones.length + 1}`,
+        seleccionado: opciones.seleccionado !== false
+    };
+
+    marcadores.forEach((marker) => {
+        marker.on("drag", () => {
+            linea.setLatLngs(marcadores.map((m) => m.getLatLng()));
+            actualizarTooltipsLinea(medicion);
+        });
+        marker.on("dragend", () => {
+            actualizarListaLineas();
+            guardarEnLocal();
+        });
+    });
+
+    historialMediciones.push(medicion);
+    actualizarTooltipsLinea(medicion);
+    setVisibilidadLinea(medicion, medicion.seleccionado !== false);
+    if (opciones.actualizarLista !== false) actualizarListaLineas();
+    if (opciones.guardar !== false) guardarEnLocal();
+    return medicion;
+}
+
+function setVisibilidadLinea(medicion, visible) {
+    if (!medicion) return;
+    const objetivoVisible = visible !== false;
+    medicion.seleccionado = objetivoVisible;
+    const capas = [medicion.linea, ...(medicion.marcadores || [])];
+    capas.forEach((capa) => {
+        if (!capa) return;
+        if (objetivoVisible) {
+            if (!map.hasLayer(capa)) capa.addTo(map);
+        } else if (map.hasLayer(capa)) {
+            map.removeLayer(capa);
+        }
+    });
 }
 
 function actualizarListaPuntos() {
@@ -1043,13 +1382,23 @@ function actualizarListaLineas() {
     ui.innerHTML = "";
     historialMediciones.forEach((m) => {
         const distancia = Number(m.distancia) || 0;
-        const txt = distancia > 1000 ? `${(distancia / 1000).toFixed(2)}km` : `${distancia.toFixed(1)}m`;
-        m.linea.bindTooltip(`<b>${m.nombre}</b><br>${txt}`, { permanent: true, direction: "center", className: "etiqueta-medicion" }).openTooltip();
+        const txt = formatearDistancia(distancia);
+        m.linea.bindTooltip(`<b>${escapeHtml(m.nombre)}</b><br>${txt}`, { permanent: true, direction: "center", className: "etiqueta-medicion" }).openTooltip();
 
         const li = document.createElement("li");
         li.style = "border-bottom:1px solid #444; padding:5px; display:flex; justify-content:space-between; align-items:center;";
         const cont = document.createElement("div");
         cont.style.cssText = "display:flex; flex-direction:column;";
+        const filaTitulo = document.createElement("div");
+        filaTitulo.style.cssText = "display:flex; align-items:center; gap:6px;";
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.checked = m.seleccionado !== false;
+        check.title = "Mostrar/Ocultar";
+        check.addEventListener("change", () => {
+            setVisibilidadLinea(m, check.checked);
+            guardarEnLocal();
+        });
         const input = document.createElement("input");
         input.type = "text";
         input.value = m.nombre;
@@ -1058,7 +1407,9 @@ function actualizarListaLineas() {
         const meta = document.createElement("small");
         meta.style.color = "#aaa";
         meta.innerText = txt;
-        cont.appendChild(input);
+        filaTitulo.appendChild(check);
+        filaTitulo.appendChild(input);
+        cont.appendChild(filaTitulo);
         cont.appendChild(meta);
 
         const boton = document.createElement("button");
@@ -1084,7 +1435,7 @@ function actualizarInfoPoligono(id) {
     if (!p) return;
     const ll = p.objeto.getLatLngs()[0];
     p.areaTxt = calcularAreaTexto(ll);
-    p.objeto.bindTooltip(`<b>${p.nombre}</b><br>${p.areaTxt}`, {
+    p.objeto.bindTooltip(`<b>${escapeHtml(p.nombre)}</b><br>${escapeHtml(p.areaTxt)}`, {
         permanent: true,
         direction: "center",
         className: "etiqueta-area"
@@ -1240,12 +1591,7 @@ function bindHerramientas() {
             puntosTemp.push(e.latlng);
             marcadoresTemp.push(L.circleMarker(e.latlng, { radius: 4 }).addTo(map));
             if (puntosTemp.length === 2) {
-                const distancia = map.distance(puntosTemp[0], puntosTemp[1]);
-                const id = Date.now();
-                const linea = L.polyline(puntosTemp, { color: "#3498db", weight: 3 }).addTo(map);
-                historialMediciones.push({ id, linea, distancia, nombre: `Medida ${historialMediciones.length + 1}` });
-                actualizarListaLineas();
-                guardarEnLocal();
+                crearLineaEditable(puntosTemp, `Medida ${historialMediciones.length + 1}`);
                 limpiarMarcadoresTemporales();
                 puntosTemp = [];
                 modoMedicion = false;
@@ -1318,7 +1664,7 @@ window.cambiarNombrePunto = (id, nombre) => {
     const p = historialPuntos.find((x) => x.id === id);
     if (!p) return;
     p.nombre = nombre || p.nombre;
-    p.m.setTooltipContent(p.nombre);
+    p.m.setTooltipContent(escapeHtml(p.nombre));
     guardarEnLocal();
 };
 
@@ -1338,10 +1684,27 @@ window.cambiarNombrePoligono = (id, nombre) => {
     guardarEnLocal();
 };
 
+window.cambiarNombreObjetivo = (id, nombre) => {
+    const objetivo = historialObjetivos.find((x) => x.id === id);
+    if (!objetivo) return;
+    objetivo.nombre = nombre || objetivo.nombre;
+    objetivo.marcador.setPopupContent(
+        `<div style="text-align:center;">
+            <strong style="color:#2980b9;">${escapeHtml(objetivo.nombre)}</strong><br>
+            <small>${decimalADMS(objetivo.destino.lat, true)}<br>${decimalADMS(objetivo.destino.lon, false)}</small><br>
+            <hr style="margin:5px 0;">
+            <span>Distancia: <strong>${objetivo.distancia.toFixed(1)} m</strong></span>
+        </div>`
+    );
+    actualizarListaObjetivos();
+    guardarEnLocal();
+};
+
 window.borrarLinea = (id) => {
     const i = historialMediciones.findIndex((x) => x.id === id);
     if (i === -1) return;
     map.removeLayer(historialMediciones[i].linea);
+    (historialMediciones[i].marcadores || []).forEach((m) => map.removeLayer(m));
     historialMediciones.splice(i, 1);
     actualizarListaLineas();
     guardarEnLocal();
@@ -1360,23 +1723,38 @@ window.borrarPunto = (id) => {
     guardarEnLocal();
 };
 
+window.borrarObjetivo = (id) => {
+    const i = historialObjetivos.findIndex((x) => x.id === id);
+    if (i === -1) return;
+    map.removeLayer(historialObjetivos[i].objeto);
+    historialObjetivos.splice(i, 1);
+    actualizarListaObjetivos();
+    guardarEnLocal();
+};
+
 window.borrarTodoElMapa = () => {
-    if (!confirm("¿Estas seguro de borrar todas las mediciones y puntos?")) return;
-    historialMediciones.forEach((m) => map.removeLayer(m.linea));
+    if (!confirm("¿Estas seguro de borrar mediciones, poligonos, puntos y fotos del mapa?")) return;
+    historialMediciones.forEach((m) => {
+        map.removeLayer(m.linea);
+        (m.marcadores || []).forEach((v) => map.removeLayer(v));
+    });
     historialPoligonos.forEach((p) => {
         map.removeLayer(p.objeto);
         p.marcadores.forEach((v) => map.removeLayer(v));
     });
     historialPuntos.forEach((p) => map.removeLayer(p.m));
+    historialObjetivos.forEach((o) => map.removeLayer(o.objeto));
     limpiarMarcadoresTemporales();
     limpiarFotos();
     historialMediciones = [];
     historialPoligonos = [];
     historialPuntos = [];
+    historialObjetivos = [];
     puntosTemp = [];
     actualizarListaLineas();
     actualizarListaPoligonos();
     actualizarListaPuntos();
+    actualizarListaObjetivos();
     guardarEnLocal();
 };
 
@@ -1629,12 +2007,14 @@ async function probarConexionDJI() {
 // 7. PERSISTENCIA
 // =========================================================
 function guardarEnLocal() {
+    if (estaHidratando) return;
     const datos = {
         mediciones: historialMediciones.map((m) => ({
             id: m.id,
             nombre: m.nombre,
             distancia: m.distancia,
-            coords: m.linea.getLatLngs()
+            coords: m.linea.getLatLngs(),
+            seleccionado: m.seleccionado !== false
         })),
         poligonos: historialPoligonos.map((p) => ({
             id: p.id,
@@ -1662,6 +2042,15 @@ function guardarEnLocal() {
             zoom: f.zoom,
             hfov: f.hfov
         })),
+        objetivos: historialObjetivos.map((o) => ({
+            id: o.id,
+            nombre: o.nombre,
+            origen: o.origen,
+            destino: o.destino,
+            rumbo: o.rumbo,
+            distancia: o.distancia,
+            seleccionado: o.seleccionado !== false
+        })),
         ultimasCoordsReales
     };
     try {
@@ -1682,12 +2071,12 @@ function hidratarDesdeDatos(datos) {
     if (Array.isArray(datos.mediciones)) {
         datos.mediciones.forEach((m) => {
             if (!Array.isArray(m.coords) || m.coords.length < 2) return;
-            const linea = L.polyline(m.coords, { color: "#3498db", weight: 3 }).addTo(map);
-            historialMediciones.push({
+            crearLineaEditable(m.coords, m.nombre || "Medida", {
                 id: m.id || Date.now(),
-                nombre: m.nombre || "Medida",
                 distancia: Number(m.distancia) || map.distance(m.coords[0], m.coords[1]),
-                linea
+                seleccionado: m.seleccionado !== false,
+                guardar: false,
+                actualizarLista: false
             });
         });
     }
@@ -1735,16 +2124,45 @@ function hidratarDesdeDatos(datos) {
         });
     }
 
+    if (Array.isArray(datos.objetivos)) {
+        datos.objetivos.forEach((o) => {
+            if (!o.origen || !o.destino) return;
+            if (typeof o.origen.lat !== "number" || typeof o.origen.lon !== "number") return;
+            if (typeof o.destino.lat !== "number" || typeof o.destino.lon !== "number") return;
+            crearObjetivoHistorial(
+                {
+                    origen: o.origen,
+                    obj: o.destino,
+                    rumbo: typeof o.rumbo === "number" ? o.rumbo : 0,
+                    distH: typeof o.distancia === "number" ? o.distancia : map.distance([o.origen.lat, o.origen.lon], [o.destino.lat, o.destino.lon])
+                },
+                {
+                    id: o.id || Date.now(),
+                    nombre: o.nombre || "Objetivo",
+                    seleccionado: o.seleccionado !== false,
+                    guardar: false,
+                    abrirPopup: false
+                }
+            );
+        });
+    }
+
     actualizarListaLineas();
     actualizarListaPoligonos();
     actualizarListaPuntos();
     actualizarListaFotos();
+    actualizarListaObjetivos();
 }
 
 async function cargarDesdeLocal() {
     const datosIdb = await idbGetAppState();
     if (datosIdb) {
-        hidratarDesdeDatos(datosIdb);
+        estaHidratando = true;
+        try {
+            hidratarDesdeDatos(datosIdb);
+        } finally {
+            estaHidratando = false;
+        }
         console.log("Carga de datos: IndexedDB");
         return;
     }
@@ -1757,7 +2175,12 @@ async function cargarDesdeLocal() {
 
     try {
         const datos = JSON.parse(raw);
-        hidratarDesdeDatos(datos);
+        estaHidratando = true;
+        try {
+            hidratarDesdeDatos(datos);
+        } finally {
+            estaHidratando = false;
+        }
         // Migra el estado legacy de localStorage para futuros inicios.
         idbSetAppState(datos);
         console.log("Carga de datos: localStorage (migrado a IndexedDB)");
