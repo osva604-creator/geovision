@@ -16,6 +16,8 @@ let capaOrientacionFoto = null;
 let capaVisionCalculada = null;
 let ultimaTelemetriaFoto = { zoom: 1, hfov: 73.74 };
 let deferredInstallPrompt = null;
+let ultimoHtmlCoords = "<strong>Mi Ubicacion:</strong><br>Esperando señal GPS...";
+let ultimoHtmlClimaLocal = "";
 
 const WEATHER_API_KEY = window.WEATHER_API_KEY || "ee2057b73b750d1fae6127e3ce2d091d";
 const STORAGE_KEY = "geovision_data";
@@ -899,26 +901,31 @@ function bindProyeccion() {
 }
 
 function renderClima(infoDiv, data, color) {
-    if (!data || !data.main || !data.wind || !Array.isArray(data.weather) || data.weather.length === 0) {
-        infoDiv.innerText = "No se pudo interpretar la respuesta del clima.";
-        return;
-    }
+    if (!data || !data.main || !data.wind || !Array.isArray(data.weather) || data.weather.length === 0) return "";
     const temp = data.main.temp;
     const viento = data.wind.speed * 3.6;
     const humedad = data.main.humidity;
     const desc = data.weather[0].description;
-    infoDiv.innerHTML = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid ${color}; margin-top:5px;">
+    const climaHtml = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid ${color}; margin-top:5px;">
         <span style="text-transform: capitalize; font-weight: bold; color:${color};">${desc}</span><br>
         🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
         💧 <b>Humedad:</b> ${humedad}%<br>
         💨 <b>Viento:</b> ${viento.toFixed(1)} km/h
     </div>`;
+    if (infoDiv) infoDiv.innerHTML = climaHtml;
+    return climaHtml;
+}
+
+function actualizarPanelUbicacion() {
+    const infoDiv = document.getElementById("info-coords");
+    if (!infoDiv) return;
+    infoDiv.innerHTML = `${ultimoHtmlCoords}${ultimoHtmlClimaLocal ? `<div style="margin-top:8px;">${ultimoHtmlClimaLocal}</div>` : ""}`;
 }
 
 function bindClima() {
     document.getElementById("btn-clima-actual").onclick = () => {
-        const infoDiv = document.getElementById("info-clima-actual");
-        infoDiv.innerText = "Obteniendo clima local...";
+        const infoDiv = document.getElementById("info-coords");
+        if (infoDiv) infoDiv.innerText = "Obteniendo clima local...";
         navigator.geolocation.getCurrentPosition(async (p) => {
             try {
                 const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${p.coords.latitude}&lon=${p.coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
@@ -926,12 +933,15 @@ function bindClima() {
                 if (!resp.ok || (data && Number(data.cod) >= 400)) {
                     throw new Error(data && data.message ? data.message : "Error de servicio");
                 }
-                renderClima(infoDiv, data, "#2980b9");
+                ultimoHtmlClimaLocal = renderClima(null, data, "#2980b9");
+                actualizarPanelUbicacion();
             } catch (e) {
-                infoDiv.innerText = `Error al obtener clima local: ${e.message || "sin detalle"}.`;
+                ultimoHtmlClimaLocal = `<small style="color:#fca5a5;">Error al obtener clima local: ${e.message || "sin detalle"}.</small>`;
+                actualizarPanelUbicacion();
             }
         }, () => {
-            infoDiv.innerText = "No se pudo obtener GPS local.";
+            ultimoHtmlClimaLocal = "<small style=\"color:#fca5a5;\">No se pudo obtener GPS local.</small>";
+            actualizarPanelUbicacion();
         });
     };
 
@@ -960,7 +970,7 @@ function localizarUsuario() {
         infoDiv.innerText = "Tu navegador no soporta geolocalizacion.";
         return;
     }
-    infoDiv.innerText = "Buscando señal GPS...";
+    if (infoDiv) infoDiv.innerText = "Buscando señal GPS...";
     navigator.geolocation.getCurrentPosition((p) => {
         const { latitude: lat, longitude: lon, accuracy: acc } = p.coords;
         map.flyTo([lat, lon], 18);
@@ -975,9 +985,10 @@ function localizarUsuario() {
                 weight: 2
             }).addTo(map);
         }
-        infoDiv.innerHTML = `<strong>Mi Ubicacion:</strong><br>${decimalADMS(lat, true)}<br>${decimalADMS(lon, false)}<br><small>Precision +/- ${acc.toFixed(0)}m</small>`;
+        ultimoHtmlCoords = `<strong>Mi Ubicacion:</strong><br>${decimalADMS(lat, true)}<br>${decimalADMS(lon, false)}<br><small>Precision +/- ${acc.toFixed(0)}m</small>`;
+        actualizarPanelUbicacion();
     }, () => {
-        infoDiv.innerText = "Error al obtener GPS. Verifica permisos.";
+        if (infoDiv) infoDiv.innerText = "Error al obtener GPS. Verifica permisos.";
     }, { enableHighAccuracy: true });
 }
 
