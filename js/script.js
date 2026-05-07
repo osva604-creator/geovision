@@ -1768,6 +1768,10 @@ window.borrarFoto = (id) => {
 const URL_GATEWAY_DJI_FARM = "https://gateway-dji-farm-498689304873.southamerica-east1.run.app";
 const HEADER_MISSION_NAME = "X-Mission-Name";
 const HEADER_MISSION_DATE = "X-Mission-Date";
+const DJI_WPML_NAMESPACE = "http://www.dji.com/wpmz/1.0.2";
+const DJI_ALTURA_MISION_M = 50;
+const DJI_ALTURA_DESPEGUE_SEGURA_M = 20;
+const DJI_VELOCIDAD_MISION_MS = 5;
 
 function escaparXml(texto) {
     return String(texto)
@@ -1823,6 +1827,197 @@ function convertirPoligonosAKML(poligonos = historialPoligonos) {
 </kml>`;
 }
 
+function formatearCoordWPML(valor) {
+    return Number(valor).toFixed(8);
+}
+
+function puntosSonIgualesWPML(a, b) {
+    if (!a || !b) return false;
+    return Math.abs(a.lat - b.lat) < 0.00000001 && Math.abs(a.lng - b.lng) < 0.00000001;
+}
+
+function normalizarPuntoWPML(punto) {
+    const lat = Number(punto.lat);
+    const lng = Number(punto.lng ?? punto.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+}
+
+function obtenerWaypointsDJIDesdePoligonos(poligonos = historialPoligonos) {
+    const waypoints = [];
+
+    poligonos.forEach((poligono, poligonoIndex) => {
+        const latLngs = poligono?.objeto?.getLatLngs?.()[0] || [];
+        const vertices = latLngs
+            .map(normalizarPuntoWPML)
+            .filter(Boolean);
+
+        if (vertices.length < 3) return;
+
+        const puntosCerrados = vertices.slice();
+        if (!puntosSonIgualesWPML(puntosCerrados[0], puntosCerrados[puntosCerrados.length - 1])) {
+            puntosCerrados.push(puntosCerrados[0]);
+        }
+
+        puntosCerrados.forEach((punto, verticeIndex) => {
+            const anterior = waypoints[waypoints.length - 1];
+            if (puntosSonIgualesWPML(anterior, punto)) return;
+
+            waypoints.push({
+                ...punto,
+                nombre: `${poligono?.nombre || `Poligono ${poligonoIndex + 1}`} - WP ${verticeIndex + 1}`
+            });
+        });
+    });
+
+    return waypoints;
+}
+
+function distanciaMetrosWPML(a, b) {
+    const radioTierraM = 6371000;
+    const lat1 = a.lat * Math.PI / 180;
+    const lat2 = b.lat * Math.PI / 180;
+    const deltaLat = (b.lat - a.lat) * Math.PI / 180;
+    const deltaLng = (b.lng - a.lng) * Math.PI / 180;
+    const h = Math.sin(deltaLat / 2) ** 2
+        + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+    return 2 * radioTierraM * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function distanciaTotalWaypointsWPML(waypoints) {
+    return waypoints.reduce((total, punto, index) => {
+        if (index === 0) return total;
+        return total + distanciaMetrosWPML(waypoints[index - 1], punto);
+    }, 0);
+}
+
+function crearMissionConfigWPML() {
+    return `<wpml:missionConfig>
+      <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
+      <wpml:finishAction>goHome</wpml:finishAction>
+      <wpml:exitOnRCLost>executeLostAction</wpml:exitOnRCLost>
+      <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+      <wpml:takeOffSecurityHeight>${DJI_ALTURA_DESPEGUE_SEGURA_M}</wpml:takeOffSecurityHeight>
+      <wpml:globalTransitionalSpeed>${DJI_VELOCIDAD_MISION_MS}</wpml:globalTransitionalSpeed>
+    </wpml:missionConfig>`;
+}
+
+function crearWaypointHeadingWPML() {
+    return `<wpml:waypointHeadingParam>
+        <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
+        <wpml:waypointHeadingAngle>0</wpml:waypointHeadingAngle>
+        <wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint>
+        <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+      </wpml:waypointHeadingParam>`;
+}
+
+function crearWaypointTurnWPML() {
+    return `<wpml:waypointTurnParam>
+        <wpml:waypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:waypointTurnMode>
+        <wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist>
+      </wpml:waypointTurnParam>`;
+}
+
+function crearPlacemarkTemplateWPML(punto, index) {
+    const coordenadas = `${formatearCoordWPML(punto.lng)},${formatearCoordWPML(punto.lat)}`;
+    return `<Placemark>
+      <name>${escaparXml(punto.nombre || `Waypoint ${index + 1}`)}</name>
+      <Point>
+        <coordinates>${coordenadas}</coordinates>
+      </Point>
+      <wpml:index>${index}</wpml:index>
+      <wpml:ellipsoidHeight>${DJI_ALTURA_MISION_M}</wpml:ellipsoidHeight>
+      <wpml:height>${DJI_ALTURA_MISION_M}</wpml:height>
+      <wpml:waypointSpeed>${DJI_VELOCIDAD_MISION_MS}</wpml:waypointSpeed>
+      ${crearWaypointHeadingWPML()}
+      ${crearWaypointTurnWPML()}
+      <wpml:useStraightLine>1</wpml:useStraightLine>
+    </Placemark>`;
+}
+
+function crearPlacemarkWaylineWPML(punto, index) {
+    const coordenadas = `${formatearCoordWPML(punto.lng)},${formatearCoordWPML(punto.lat)}`;
+    return `<Placemark>
+      <Point>
+        <coordinates>${coordenadas}</coordinates>
+      </Point>
+      <wpml:index>${index}</wpml:index>
+      <wpml:executeHeight>${DJI_ALTURA_MISION_M}</wpml:executeHeight>
+      <wpml:waypointSpeed>${DJI_VELOCIDAD_MISION_MS}</wpml:waypointSpeed>
+      ${crearWaypointHeadingWPML()}
+      ${crearWaypointTurnWPML()}
+      <wpml:useStraightLine>1</wpml:useStraightLine>
+    </Placemark>`;
+}
+
+function crearTemplateKMLWPML(waypoints, metadataMision = crearMetadataMision()) {
+    const fechaMs = Number(new Date(metadataMision.fechaIso).getTime()) || Date.now();
+    const nombre = escaparXml(metadataMision.nombre || "geovision-mision");
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="${DJI_WPML_NAMESPACE}">
+  <Document>
+    <name>${nombre}</name>
+    <wpml:author>GeoVision</wpml:author>
+    <wpml:createTime>${fechaMs}</wpml:createTime>
+    <wpml:updateTime>${fechaMs}</wpml:updateTime>
+    ${crearMissionConfigWPML()}
+    <Folder>
+      <wpml:templateId>0</wpml:templateId>
+      <wpml:templateType>waypoint</wpml:templateType>
+      <wpml:waylineCoordinateSysParam>
+        <wpml:coordinateMode>WGS84</wpml:coordinateMode>
+        <wpml:heightMode>relativeToStartPoint</wpml:heightMode>
+      </wpml:waylineCoordinateSysParam>
+      <wpml:autoFlightSpeed>${DJI_VELOCIDAD_MISION_MS}</wpml:autoFlightSpeed>
+      <wpml:globalHeight>${DJI_ALTURA_MISION_M}</wpml:globalHeight>
+      <wpml:gimbalPitchMode>manual</wpml:gimbalPitchMode>
+      ${waypoints.map(crearPlacemarkTemplateWPML).join("\n      ")}
+    </Folder>
+  </Document>
+</kml>`;
+}
+
+function crearWaylinesWPML(waypoints, metadataMision = crearMetadataMision()) {
+    const nombre = escaparXml(metadataMision.nombre || "geovision-mision");
+    const distancia = distanciaTotalWaypointsWPML(waypoints);
+    const duracion = distancia / DJI_VELOCIDAD_MISION_MS;
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="${DJI_WPML_NAMESPACE}">
+  <Document>
+    <name>${nombre}</name>
+    ${crearMissionConfigWPML()}
+    <Folder>
+      <wpml:templateId>0</wpml:templateId>
+      <wpml:executeHeightMode>relativeToStartPoint</wpml:executeHeightMode>
+      <wpml:waylineId>0</wpml:waylineId>
+      <wpml:distance>${distancia.toFixed(2)}</wpml:distance>
+      <wpml:duration>${duracion.toFixed(2)}</wpml:duration>
+      <wpml:autoFlightSpeed>${DJI_VELOCIDAD_MISION_MS}</wpml:autoFlightSpeed>
+      ${waypoints.map(crearPlacemarkWaylineWPML).join("\n      ")}
+    </Folder>
+  </Document>
+</kml>`;
+}
+
+async function crearKMZDJIWPML(waypoints, metadataMision = crearMetadataMision()) {
+    if (!window.JSZip) {
+        throw new Error("JSZip no esta disponible para generar KMZ.");
+    }
+    if (!Array.isArray(waypoints) || waypoints.length < 2) {
+        throw new Error("La mision DJI necesita al menos 2 waypoints validos.");
+    }
+
+    const zip = new window.JSZip();
+    zip.file("wpmz/template.kml", crearTemplateKMLWPML(waypoints, metadataMision));
+    zip.file("wpmz/waylines.wpml", crearWaylinesWPML(waypoints, metadataMision));
+    return zip.generateAsync({
+        type: "blob",
+        mimeType: "application/vnd.google-earth.kmz",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 }
+    });
+}
+
 function exportarPoligonosKML() {
     const poligonosSeleccionados = obtenerPoligonosSeleccionados();
     if (poligonosSeleccionados.length === 0) {
@@ -1843,49 +2038,22 @@ function exportarPoligonosKML() {
     URL.revokeObjectURL(url);
 }
 
-async function crearBlobMisionKMZ(poligonos = historialPoligonos) {
-    const contenidoKml = convertirPoligonosAKML(poligonos);
-    if (!window.JSZip) {
-        throw new Error("JSZip no esta disponible para generar KMZ.");
-    }
-
-    const zip = new window.JSZip();
-    zip.file("doc.kml", contenidoKml);
-    return zip.generateAsync({
-        type: "blob",
-        mimeType: "application/vnd.google-earth.kmz",
-        compression: "DEFLATE",
-        compressionOptions: { level: 6 }
-    });
+async function crearBlobMisionKMZ(poligonos = historialPoligonos, metadataMision = crearMetadataMision()) {
+    const waypoints = obtenerWaypointsDJIDesdePoligonos(poligonos);
+    return crearKMZDJIWPML(waypoints, metadataMision);
 }
 
-async function crearBlobPruebaDJI() {
-    if (!window.JSZip) {
-        throw new Error("JSZip no esta disponible para generar KMZ.");
-    }
-
-    const contenidoKml = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>GeoVision Test</name>
-    <Placemark>
-      <name>GeoVision Test Point</name>
-      <description>Prueba de comunicacion GeoVision -> Gateway DJI</description>
-      <Point>
-        <coordinates>-65.203,-26.837,0</coordinates>
-      </Point>
-    </Placemark>
-  </Document>
-</kml>`;
-
-    const zip = new window.JSZip();
-    zip.file("doc.kml", contenidoKml);
-    return zip.generateAsync({
-        type: "blob",
-        mimeType: "application/vnd.google-earth.kmz",
-        compression: "DEFLATE",
-        compressionOptions: { level: 6 }
-    });
+async function crearBlobPruebaDJI(metadataMision = crearMetadataMision("geovision-test-conexion")) {
+    const base = { lat: -26.837, lng: -65.203 };
+    const delta = 0.00012;
+    const waypoints = [
+        { lat: base.lat - delta, lng: base.lng - delta, nombre: "GeoVision Test - WP 1" },
+        { lat: base.lat - delta, lng: base.lng + delta, nombre: "GeoVision Test - WP 2" },
+        { lat: base.lat + delta, lng: base.lng + delta, nombre: "GeoVision Test - WP 3" },
+        { lat: base.lat + delta, lng: base.lng - delta, nombre: "GeoVision Test - WP 4" },
+        { lat: base.lat - delta, lng: base.lng - delta, nombre: "GeoVision Test - WP 5" }
+    ];
+    return crearKMZDJIWPML(waypoints, metadataMision);
 }
 
 function normalizarNombreMision(texto) {
@@ -1968,7 +2136,7 @@ async function exportarDJIFarm() {
     }
 
     try {
-        const kmzBlob = await crearBlobMisionKMZ(poligonosSeleccionados);
+        const kmzBlob = await crearBlobMisionKMZ(poligonosSeleccionados, metadataMision);
         await enviarMisionADron(kmzBlob, metadataMision);
     } catch (error) {
         console.error("No se pudo generar/enviar la mision:", error);
@@ -1990,7 +2158,7 @@ async function probarConexionDJI() {
 
     try {
         const metadataMision = crearMetadataMision("geovision-test-conexion");
-        const kmzBlob = await crearBlobPruebaDJI();
+        const kmzBlob = await crearBlobPruebaDJI(metadataMision);
         await enviarMisionADron(kmzBlob, metadataMision);
     } catch (error) {
         console.error("No se pudo ejecutar la prueba DJI:", error);
