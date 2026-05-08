@@ -2417,4 +2417,24 @@ window.onload = function onLoad() {
     bindHerramientas();
     initMobileBottomSheet();
     cargarDesdeLocal();
+    initWelcomeScreen();
 };
+
+function initWelcomeScreen() {
+    const welcomeStart = document.getElementById("btn-welcome-start");
+    const welcomeScreen = document.getElementById("welcome-screen");
+    if (!welcomeScreen || !welcomeStart) return;
+
+    const close = () => {
+        if (!welcomeScreen || welcomeScreen.classList.contains("hidden")) return;
+        welcomeScreen.classList.add("hidden");
+        setTimeout(() => {
+            if (welcomeScreen.parentNode) {
+                welcomeScreen.parentNode.removeChild(welcomeScreen);
+            }
+        }, 500);
+    };
+
+    welcomeStart.addEventListener("click", close);
+    setTimeout(close, 2800);
+}
