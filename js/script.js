@@ -28,6 +28,9 @@ const IDB_VERSION = 1;
 const IDB_STORE_FOTOS = "foto_previews";
 const IDB_STORE_APP_STATE = "app_state";
 const PITCH_GIMBAL_DEFAULT = 25;
+const URL_GATEWAY_DJI_FARM = "https://southamerica-east1-geovision-drones.cloudfunctions.net/gateway-dji-farm";
+const HEADER_MISSION_NAME = "X-Mission-Name";
+const HEADER_MISSION_DATE = "X-Mission-Date";
 
 const googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
     maxZoom: 21,
@@ -2084,8 +2087,8 @@ async function enviarMisionADron(kmzBlob, metadataMision) {
             method: "POST",
             headers: {
                 "Content-Type": "application/vnd.google-earth.kmz",
-                [HEADER_MISSION_NAME]: metadataMision.nombre,
-                [HEADER_MISSION_DATE]: metadataMision.fechaIso
+                [HEADER_MISSION_NAME]: String(metadataMision.nombre),
+                [HEADER_MISSION_DATE]: string(metadataMision.fechaIso
             },
             body: kmzBlob
         });
