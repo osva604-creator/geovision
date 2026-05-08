@@ -42,6 +42,21 @@ function obtenerAccessToken(djiAuthResponse) {
   );
 }
 
+function formatearErrorDJI(error) {
+  if (!error) return "Error desconocido";
+  if (error.code === "ENOTFOUND") {
+    return `No se pudo resolver el host DJI (ENOTFOUND). Verifique conectividad DNS y que el host de DJI sea accesible desde el entorno de ejecución. URL probada: ${error.config?.url || DJI_LOGIN_URL}`;
+  }
+  if (error.response) {
+    const respuesta = error.response.data || error.response.statusText || error.message;
+    return `HTTP ${error.response.status}: ${JSON.stringify(respuesta)}`;
+  }
+  if (error.request) {
+    return error.message || "No hubo respuesta del servidor DJI.";
+  }
+  return error.message || String(error);
+}
+
 /**
  * Gateway GeoVision -> DJI Cloud
  * Region sugerida: southamerica-east1
@@ -66,6 +81,9 @@ functions.http("gateway-dji-farm", async (req, res) => {
   try {
     const djiKey = process.env.DJI_APP_KEY;
     const djiSecret = process.env.DJI_APP_SECRET;
+
+    console.info("DJI endpoint login:", DJI_LOGIN_URL);
+    console.info("DJI endpoint upload:", DJI_UPLOAD_URL);
 
     if (!djiKey || !djiSecret) {
       return res.status(500).json({
@@ -136,11 +154,20 @@ functions.http("gateway-dji-farm", async (req, res) => {
       dji_response: djiData
     });
   } catch (error) {
-    console.error("Error en el proceso DJI:", error?.response?.data || error?.message);
+    const detalle = formatearErrorDJI(error);
+    console.error("Error en el proceso DJI:", detalle, {
+      code: error?.code,
+      url: error?.config?.url,
+      method: error?.config?.method,
+      status: error?.response?.status,
+      statusText: error?.response?.statusText
+    });
     return res.status(500).json({
       success: false,
       error: "Falla en el despacho a DJI",
-      detalle: error?.response?.data || error?.message || "Error desconocido"
+      detalle,
+      dji_login_url: DJI_LOGIN_URL,
+      dji_upload_url: DJI_UPLOAD_URL
     });
   }
 });

@@ -28,7 +28,7 @@ const IDB_VERSION = 1;
 const IDB_STORE_FOTOS = "foto_previews";
 const IDB_STORE_APP_STATE = "app_state";
 const PITCH_GIMBAL_DEFAULT = 25;
-const URL_GATEWAY_DJI_FARM = "https://southamerica-east1-geovision-drones.cloudfunctions.net/gateway-dji-farm";
+const URL_GATEWAY_DJI_FARM = "https://gateway-dji-farm-498689304873.southamerica-east1.run.app";
 const HEADER_MISSION_NAME = "X-Mission-Name";
 const HEADER_MISSION_DATE = "X-Mission-Date";
 
@@ -1768,9 +1768,6 @@ window.borrarFoto = (id) => {
 // =========================================================
 // 6. EXPORTACION
 // =========================================================
-const URL_GATEWAY_DJI_FARM = "https://gateway-dji-farm-498689304873.southamerica-east1.run.app";
-const HEADER_MISSION_NAME = "X-Mission-Name";
-const HEADER_MISSION_DATE = "X-Mission-Date";
 const DJI_WPML_NAMESPACE = "http://www.dji.com/wpmz/1.0.2";
 const DJI_ALTURA_MISION_M = 50;
 const DJI_ALTURA_DESPEGUE_SEGURA_M = 20;
@@ -2088,7 +2085,7 @@ async function enviarMisionADron(kmzBlob, metadataMision) {
             headers: {
                 "Content-Type": "application/vnd.google-earth.kmz",
                 [HEADER_MISSION_NAME]: String(metadataMision.nombre),
-                [HEADER_MISSION_DATE]: string(metadataMision.fechaIso
+                [HEADER_MISSION_DATE]: String(metadataMision.fechaIso)
             },
             body: kmzBlob
         });
