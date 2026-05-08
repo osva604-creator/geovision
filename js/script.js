@@ -1235,6 +1235,15 @@ function bindClima() {
     };
 }
 
+function abrirMapaBienvenida() {
+    const saludoCoords = [-26.886502660213303, -64.99791220297926];
+    map.setView(saludoCoords, 15);
+    L.marker(saludoCoords)
+        .addTo(map)
+        .bindPopup("<strong>Bienvenido a GeoVision</strong><br>Usa el botón de localizar cuando quieras.")
+        .openPopup();
+}
+
 function localizarUsuario() {
     const infoDiv = document.getElementById("info-coords");
     if (!navigator.geolocation) {
@@ -2403,6 +2412,7 @@ window.onload = function onLoad() {
     addCompassControl();
     bindFotoDrone();
     bindProyeccion();
+    abrirMapaBienvenida();
     bindClima();
     bindHerramientas();
     initMobileBottomSheet();
