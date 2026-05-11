@@ -12,7 +12,7 @@
     --accent-light: #a5f3fc;
     --shadow: 0 24px 70px rgba(2, 12, 26, 0.35);
     /* Cambia esto por una imagen local si querés un splash personalizado */
-    --welcome-bg-image: none;
+    --welcome-bg-image: url("../assets/Gemini_Generated_Image_rz44r6rz44r6rz44.png");
 }
 
 body {
@@ -121,23 +121,7 @@ main {
     border-radius: 28px;
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.30);
     backdrop-filter: blur(18px);
-    text-align: left;
-}
-
-.welcome-brand {
-    font-size: 0.95rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.26em;
-    color: var(--primary);
-    margin-bottom: 24px;
-}
-
-.welcome-card h1 {
-    margin: 0;
-    font-size: clamp(2.6rem, 5vw, 4rem);
-    line-height: 0.95;
-    letter-spacing: -0.04em;
+    text-align: center;
 }
 
 .welcome-card p {
@@ -145,6 +129,7 @@ main {
     color: rgba(232, 245, 255, 0.82);
     line-height: 1.7;
     font-size: 1rem;
+    text-align: center;
 }
 
 .welcome-card button {
@@ -156,6 +141,8 @@ main {
     color: #07120f;
     border-radius: 999px;
     box-shadow: 0 20px 40px rgba(106, 201, 31, 0.25);
+    display: block;
+    margin: 0 auto;
 }
 
 #welcome-screen.hidden {
