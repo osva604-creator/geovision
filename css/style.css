@@ -2,14 +2,14 @@
     --bg-main: #061017;
     --bg-panel: rgba(7, 18, 33, 0.88);
     --bg-card: rgba(12, 28, 46, 0.78);
-    --border: rgba(50, 173, 220, 0.18);
+    --border: rgba(31, 91, 40, 0.18);
     --text-main: #e8f5ff;
     --text-muted: #94aac0;
-    --primary: #35c1dd;
-    --primary-hover: #5dd2ea;
-    --success: #6ee7b7;
+    --primary: #1f5e32;
+    --primary-hover: #86d94f;
+    --success: #8eeea6;
     --danger: #f97373;
-    --accent-light: #a5f3fc;
+    --accent-light: #c0f9a2;
     --shadow: 0 24px 70px rgba(2, 12, 26, 0.35);
     /* Cambia esto por una imagen local si querés un splash personalizado */
     --welcome-bg-image: url("../assets/Gemini_Generated_Image_rz44r6rz44r6rz44.png");
@@ -66,7 +66,7 @@ main {
     border-radius: 26px;
     overflow: hidden;
     box-shadow: var(--shadow);
-    border: 1px solid rgba(56, 181, 224, 0.12);
+    border: 1px solid rgba(31, 91, 40, 0.12);
 }
 
 #map {
@@ -83,7 +83,7 @@ main {
     background-color: var(--bg-panel);
     padding: 24px;
     border-radius: 28px;
-    border: 1px solid rgba(56, 181, 224, 0.12);
+    border: 1px solid rgba(31, 91, 40, 0.12);
     overflow-y: auto;
     backdrop-filter: blur(18px);
     box-shadow: var(--shadow);
@@ -97,7 +97,7 @@ main {
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background-image: var(--welcome-bg-image), radial-gradient(circle at top left, rgba(56, 176, 232, 0.20), transparent 30%), linear-gradient(180deg, rgba(4, 9, 19, 0.88), rgba(4, 9, 19, 0.98));
+    background-image: var(--welcome-bg-image), radial-gradient(circle at top left, rgba(79, 153, 90, 0.20), transparent 50%), linear-gradient(180deg, rgba(4, 9, 19, 0.88), rgba(4, 9, 19, 0.98));
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -117,7 +117,7 @@ main {
     width: min(620px, 100%);
     padding: 34px 30px;
     background: rgba(4, 12, 24, 0.72);
-    border: 1px solid rgba(56, 181, 224, 0.14);
+    border: 1px solid rgba(31, 91, 40, 0.14);
     border-radius: 28px;
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.30);
     backdrop-filter: blur(18px);
@@ -168,7 +168,7 @@ main {
 button {
     width: 100%;
     padding: 12px 14px;
-    background: linear-gradient(135deg, rgba(53, 185, 226, 0.95), rgba(34, 126, 161, 0.95));
+    background: linear-gradient(135deg, rgba(27, 84, 42, 0.95), rgba(38, 118, 52, 0.95));
     color: var(--text-main);
     border: none;
     border-radius: 16px;
@@ -182,13 +182,13 @@ button {
 }
 
 button:focus-visible {
-    outline: 2px solid rgba(53, 185, 226, 0.55);
+    outline: 2px solid rgba(110, 227, 98, 0.55);
     outline-offset: 3px;
 }
 
 button:hover {
     transform: translateY(-1px);
-    background: linear-gradient(135deg, rgba(71, 217, 241, 0.95), rgba(29, 142, 172, 0.95));
+    background: linear-gradient(135deg, rgba(110, 227, 98, 0.98), rgba(86, 214, 80, 0.98));
 }
 
 button.tool-btn {
@@ -201,7 +201,7 @@ button.tool-btn {
 }
 
 .tool-btn-tool {
-    background: rgba(42, 104, 154, 0.95) !important;
+    background: rgba(36, 92, 44, 0.95) !important;
 }
 
 .tool-btn-warn {
@@ -213,9 +213,9 @@ button.tool-btn {
 }
 
 .tool-btn.is-active {
-    background: linear-gradient(135deg, #f6c45f, #ed8c5f) !important;
+    background: linear-gradient(135deg, #8eeea6, #6ac91f) !important;
     color: #081014 !important;
-    box-shadow: 0 0 0 2px rgba(246, 196, 95, 0.25), 0 10px 22px rgba(0, 0, 0, 0.22);
+    box-shadow: 0 0 0 2px rgba(134, 217, 79, 0.25), 0 10px 22px rgba(0, 0, 0, 0.22);
 }
 
 .tool-btn.is-active::after {
@@ -227,8 +227,8 @@ button.tool-btn {
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    background: #6ee7b7;
-    box-shadow: 0 0 0 2px rgba(110, 231, 183, 0.22);
+    background: #86d94f;
+    box-shadow: 0 0 0 2px rgba(134, 217, 79, 0.22);
 }
 
 #lista-puntos, #lista-medidas, #lista-poligonos, #lista-poligonos-manuales, #lista-poligonos-automaticos, #lista-fotos, #lista-objetivos {
@@ -240,7 +240,7 @@ button.tool-btn {
     font-size: 0.95em;
     list-style: none;
     margin: 10px 0;
-    border: 1px solid rgba(69, 182, 234, 0.18);
+    border: 1px solid rgba(41, 108, 57, 0.18);
 }
 
 #lista-puntos li,
@@ -263,8 +263,8 @@ button.tool-btn {
 #lista-poligonos-automaticos li:hover,
 #lista-fotos li:hover,
 #lista-objetivos li:hover {
-    background: rgba(52, 152, 219, 0.12);
-    border-color: rgba(52, 152, 219, 0.22);
+    background: rgba(115, 186, 99, 0.12);
+    border-color: rgba(115, 186, 99, 0.22);
 }
 
 #btn-mobile-controles {
@@ -283,7 +283,7 @@ button.tool-btn {
     gap: 12px;
     padding: 14px 18px;
     border-radius: 18px;
-    border: 1px solid rgba(69, 182, 234, 0.18);
+    border: 1px solid rgba(31, 91, 40, 0.18);
     background: rgba(10, 21, 36, 0.95);
     backdrop-filter: blur(20px);
     color: var(--text-main);
@@ -302,7 +302,7 @@ button.tool-btn {
     margin: 0;
     padding: 8px 12px;
     font-size: 0.85rem;
-    background: rgba(53, 185, 226, 0.95);
+    background: rgba(86, 214, 80, 0.95);
     border-radius: 12px;
 }
 
@@ -465,8 +465,24 @@ button.tool-btn {
         margin: 0;
         padding: 10px 16px !important;
         border-radius: 999px;
-        background: rgba(22, 60, 48, 0.9);
+        background: rgba(169, 67, 72, 0.92);
+        color: #ffffff;
         backdrop-filter: blur(10px);
+        border: 1px solid rgba(210, 125, 130, 0.25);
+        transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    #btn-mobile-controles:hover {
+        background: rgba(216, 97, 99, 0.92);
+    }
+
+    #btn-mobile-controles.activo {
+        background: rgba(203, 80, 84, 0.98);
+        border-color: rgba(234, 110, 113, 0.35);
+    }
+
+    #btn-mobile-controles.activo:hover {
+        background: rgba(228, 105, 109, 0.95);
     }
 
     /* Agrandamos botones para que sean fáciles de tocar con el dedo */
@@ -576,3 +592,46 @@ button {
 #sidebar small {
     color: var(--text-muted);
 }
+
+/* Estilos modernos para selectores */
+#tamano-baldosa-auto, #modo-poligono-auto {
+    flex: 1;
+    min-width: 0;
+    padding: 12px 16px;
+    background: rgba(17, 31, 45, 0.78);
+    border: 1px solid rgba(41, 108, 57, 0.18);
+    border-radius: 16px;
+    color: var(--text-main);
+    font-size: 0.9rem;
+    font-weight: 600;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 24px rgba(3, 11, 19, 0.15);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 12px center;
+    background-repeat: no-repeat;
+    background-size: 16px;
+    padding-right: 40px;
+}
+
+#tamano-baldosa-auto:hover, #modo-poligono-auto:hover {
+    border-color: rgba(115, 186, 99, 0.35);
+    background: rgba(26, 51, 34, 0.92);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 32px rgba(3, 11, 19, 0.22);
+}
+
+#tamano-baldosa-auto:focus, #modo-poligono-auto:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(134, 217, 79, 0.15);
+}
+
+#tamano-baldosa-auto option, #modo-poligono-auto option {
+    background: rgba(12, 28, 46, 0.95);
+    color: var(--text-main);
+    padding: 8px;
+}
+

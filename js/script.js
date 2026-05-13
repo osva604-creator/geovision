@@ -295,7 +295,8 @@ function recolectarCamposDebug(origen, patrones) {
 
 function resolverCandidatoTelemetria(campos, fuentes, candidatos, opciones = {}) {
     const claves = Object.keys(campos);
-    let fallbackCero = null;
+    const rechazos = [];
+
     for (const candidato of candidatos) {
         const config = typeof candidato === "string" ? { nombre: candidato } : candidato;
         const key = normalizarClave(config.nombre);
@@ -311,22 +312,60 @@ function resolverCandidatoTelemetria(campos, fuentes, candidatos, opciones = {})
         const numeros = Array.isArray(fuente.numeros) ? fuente.numeros : [campos[encontrada]];
         const indice = typeof config.indice === "number" ? config.indice : 0;
         const valor = numeros[indice];
+
         if (Number.isFinite(valor)) {
-            const resultado = {
+            return {
                 valor,
                 fuente: fuente.ruta || encontrada,
                 candidato: config.nombre,
-                numeros
+                numeros,
+                rechazos
             };
-            if (opciones.preferirNoCero && Math.abs(valor) < 0.0001) {
-                if (!fallbackCero) fallbackCero = resultado;
-                continue;
-            }
-            return resultado;
+        } else if (valor !== null && valor !== undefined) {
+            rechazos.push(`${config.nombre}: no es número (${valor})`);
         }
     }
-    if (fallbackCero) return fallbackCero;
-    return { valor: null, fuente: null, candidato: null, numeros: [] };
+
+    return { valor: null, fuente: null, candidato: null, numeros: [], rechazos };
+}
+
+function validarTelemetria(telemetria) {
+    const validaciones = { errores: [], advertencias: [] };
+
+    if (telemetria.pitch !== null) {
+        if (telemetria.pitch < -90 || telemetria.pitch > 90) {
+            validaciones.errores.push(`pitch=${telemetria.pitch}° fuera de rango [-90, 90]`);
+            telemetria.pitch = null;
+        }
+    }
+
+    if (telemetria.yaw !== null) {
+        if (telemetria.yaw < 0 || telemetria.yaw > 360) {
+            if (telemetria.yaw < -360 || telemetria.yaw > 720) {
+                validaciones.errores.push(`yaw=${telemetria.yaw}° fuera de rango [-360, 720]`);
+                telemetria.yaw = null;
+            } else {
+                telemetria.yaw = telemetria.yaw % 360;
+                if (telemetria.yaw < 0) telemetria.yaw += 360;
+            }
+        }
+    }
+
+    if (telemetria.alt !== null) {
+        if (telemetria.alt < 0) {
+            validaciones.errores.push(`altitud=${telemetria.alt}m negativa`);
+            telemetria.alt = null;
+        } else if (telemetria.alt > 10000) {
+            validaciones.advertencias.push(`altitud=${telemetria.alt}m parece inusualmente alta`);
+        }
+    }
+
+    if (telemetria.zoom !== null && telemetria.zoom < 1) {
+        validaciones.errores.push(`zoom=${telemetria.zoom} < 1`);
+        telemetria.zoom = 1;
+    }
+
+    return validaciones;
 }
 
 function extraerTelemetria(data) {
@@ -345,7 +384,7 @@ function extraerTelemetria(data) {
         { nombre: "GimbalRPY", indice: 1 },
         "FlightPitchDegree",
         "Pitch"
-    ], { preferirNoCero: true });
+    ]);
     const yawDetectado = resolverCandidatoTelemetria(campos, fuentes, [
         "FlightYawDegree", "drone-dji:FlightYawDegree", "DroneYawDegree", "GPSImgDirection", "Heading",
         "GimbalYawDegree", "drone-dji:GimbalYawDegree", "CameraGimbalYawDegree",
@@ -365,30 +404,44 @@ function extraerTelemetria(data) {
     const focalEquiv = 24 / zoom;
     const hfov = 2 * Math.atan(18 / focalEquiv) * (180 / Math.PI);
 
-    const pitchFinal = Number.isFinite(pitchDetectado.valor) && Math.abs(pitchDetectado.valor) >= 0.0001
-        ? pitchDetectado.valor
-        : PITCH_GIMBAL_DEFAULT;
-    const pitchUsaDefault = pitchFinal === PITCH_GIMBAL_DEFAULT && (!Number.isFinite(pitchDetectado.valor) || Math.abs(pitchDetectado.valor) < 0.0001);
-
-    return {
-        pitch: pitchFinal,
+    const resultado = {
+        pitch: pitchDetectado.valor,
         yaw: yawDetectado.valor,
         alt: altDetectada.valor,
         zoom,
         hfov,
         fuentes: {
-            pitch: pitchUsaDefault ? `valor por defecto (${PITCH_GIMBAL_DEFAULT}°)` : pitchDetectado.fuente,
+            pitch: pitchDetectado.fuente,
             yaw: yawDetectado.fuente,
             alt: altDetectada.fuente,
             zoom: zoomDetectado.fuente
         },
         candidatos: {
-            pitch: pitchUsaDefault ? "defaultPitch" : pitchDetectado.candidato,
+            pitch: pitchDetectado.candidato,
             yaw: yawDetectado.candidato,
             alt: altDetectada.candidato,
             zoom: zoomDetectado.candidato
+        },
+        rechazosResolucion: {
+            pitch: pitchDetectado.rechazos || [],
+            yaw: yawDetectado.rechazos || [],
+            alt: altDetectada.rechazos || [],
+            zoom: zoomDetectado.rechazos || []
         }
     };
+
+    // Aplicar validación de rangos
+    const validaciones = validarTelemetria(resultado);
+    resultado.validaciones = validaciones;
+
+    // Si pitch sigue siendo null después de extracción y validación, usar default
+    if (resultado.pitch === null) {
+        resultado.pitch = PITCH_GIMBAL_DEFAULT;
+        resultado.fuentes.pitch = `valor por defecto (${PITCH_GIMBAL_DEFAULT}°)`;
+        resultado.candidatos.pitch = "defaultPitch";
+    }
+
+    return resultado;
 }
 
 function formatearCoords(lat, lon) {
@@ -938,21 +991,61 @@ function actualizarDebugExif(data, telemetria, faltantes) {
     const { campos } = recolectarCamposNumericosDetallados(data);
     const claves = Object.keys(campos).sort().slice(0, 30);
     const candidatosDebug = recolectarCamposDebug(data, ["gimbal", "pitch", "yaw", "camera", "flight", "drone"]);
+
     const lineas = [
-        `pitch: ${telemetria.pitch !== null ? telemetria.pitch : "N/A"}`,
-        `pitch fuente: ${telemetria.fuentes && telemetria.fuentes.pitch ? telemetria.fuentes.pitch : "N/A"}`,
-        `heading: ${telemetria.yaw !== null ? telemetria.yaw : "N/A"}`,
-        `heading fuente: ${telemetria.fuentes && telemetria.fuentes.yaw ? telemetria.fuentes.yaw : "N/A"}`,
-        `altitud: ${telemetria.alt !== null ? telemetria.alt : "N/A"}`,
-        `altitud fuente: ${telemetria.fuentes && telemetria.fuentes.alt ? telemetria.fuentes.alt : "N/A"}`,
-        `faltantes: ${faltantes.length ? faltantes.join(", ") : "ninguno"}`,
+        "═══ TELEMETRIA EXTRAIDA ═══",
+        `pitch: ${telemetria.pitch !== null ? telemetria.pitch.toFixed(2) : "N/A"}°`,
+        `  fuente: ${telemetria.fuentes && telemetria.fuentes.pitch ? telemetria.fuentes.pitch : "N/A"}`,
+        `  candidato: ${telemetria.candidatos && telemetria.candidatos.pitch ? telemetria.candidatos.pitch : "N/A"}`,
+        `heading: ${telemetria.yaw !== null ? telemetria.yaw.toFixed(2) : "N/A"}°`,
+        `  fuente: ${telemetria.fuentes && telemetria.fuentes.yaw ? telemetria.fuentes.yaw : "N/A"}`,
+        `  candidato: ${telemetria.candidatos && telemetria.candidatos.yaw ? telemetria.candidatos.yaw : "N/A"}`,
+        `altitud: ${telemetria.alt !== null ? telemetria.alt.toFixed(1) : "N/A"}m`,
+        `  fuente: ${telemetria.fuentes && telemetria.fuentes.alt ? telemetria.fuentes.alt : "N/A"}`,
+        `  candidato: ${telemetria.candidatos && telemetria.candidatos.alt ? telemetria.candidatos.alt : "N/A"}`,
+    ];
+
+    // Mostrar rechazos si existen
+    if (telemetria.rechazosResolucion) {
+        const hayRechazos = Object.values(telemetria.rechazosResolucion).some(r => r && r.length > 0);
+        if (hayRechazos) {
+            lineas.push("", "═══ VALORES RECHAZADOS ═══");
+            if (telemetria.rechazosResolucion.pitch && telemetria.rechazosResolucion.pitch.length) {
+                lineas.push(`pitch: ${telemetria.rechazosResolucion.pitch.join("; ")}`);
+            }
+            if (telemetria.rechazosResolucion.yaw && telemetria.rechazosResolucion.yaw.length) {
+                lineas.push(`heading: ${telemetria.rechazosResolucion.yaw.join("; ")}`);
+            }
+            if (telemetria.rechazosResolucion.alt && telemetria.rechazosResolucion.alt.length) {
+                lineas.push(`altitud: ${telemetria.rechazosResolucion.alt.join("; ")}`);
+            }
+            if (telemetria.rechazosResolucion.zoom && telemetria.rechazosResolucion.zoom.length) {
+                lineas.push(`zoom: ${telemetria.rechazosResolucion.zoom.join("; ")}`);
+            }
+        }
+    }
+
+    // Mostrar validaciones si fallaron
+    if (telemetria.validaciones) {
+        if (telemetria.validaciones.errores && telemetria.validaciones.errores.length) {
+            lineas.push("", "═══ VALIDACION - ERRORES ═══");
+            telemetria.validaciones.errores.forEach(e => lineas.push(`✗ ${e}`));
+        }
+        if (telemetria.validaciones.advertencias && telemetria.validaciones.advertencias.length) {
+            lineas.push("", "═══ VALIDACION - ADVERTENCIAS ═══");
+            telemetria.validaciones.advertencias.forEach(a => lineas.push(`⚠ ${a}`));
+        }
+    }
+
+    lineas.push(
         "",
-        "Campos candidatos de camara/gimbal:",
+        "═══ CANDIDATOS DETECTADOS ═══",
         ...(candidatosDebug.length ? candidatosDebug.map((item) => `- ${item}`) : ["- ninguno"]),
         "",
-        "Campos numericos detectados (primeros 30):",
+        "═══ CAMPOS NUMERICOS (primeros 30) ═══",
         ...claves.map((k) => `- ${k}: ${campos[k]}`)
-    ];
+    );
+
     ui.textContent = lineas.join("\n");
 }
 
@@ -1643,11 +1736,13 @@ function initMobileBottomSheet() {
     function aplicarEstado() {
         if (!mq.matches) {
             sidebar.classList.remove("mobile-open");
+            btnControles.classList.remove("activo");
             btnControles.style.display = "none";
             return;
         }
         btnControles.style.display = "block";
         sidebar.classList.toggle("mobile-open", abierto);
+        btnControles.classList.toggle("activo", abierto);
         btnControles.innerText = abierto ? "Cerrar controles" : "Controles";
     }
 
