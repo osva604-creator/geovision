@@ -178,6 +178,15 @@ const iconoMira = L.icon({
     iconAnchor: [20, 20]
 });
 
+const iconoVaca = L.divIcon({
+    className: "vaca-marker",
+    html: '<div style="font-size: 24px; line-height: 1;">🐄</div>',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+});
+let modeloGanado = null;
+let marcadoresGanado = [];
+
 // =========================================================
 // 2. FUNCIONES DE APOYO
 // =========================================================
@@ -1149,6 +1158,16 @@ function bindFotoDrone() {
                 fotoURL
             );
             if (fotoPreviewURL) await idbSetFotoPreview(foto.id, fotoPreviewURL);
+            const imgPreview = document.getElementById("img-preview");
+            if (imgPreview) {
+                imgPreview.src = fotoURL;
+                imgPreview.alt = file.name;
+                imgPreview.style.display = "block";
+            }
+            const countResult = document.getElementById("resultado-conteo");
+            if (countResult) {
+                countResult.innerText = "";
+            }
             foto.marcador.openPopup();
             if (telemetria.yaw !== null) {
                 mostrarOrientacionFoto(data.latitude, data.longitude, telemetria.yaw);
@@ -1167,6 +1186,123 @@ function bindFotoDrone() {
             alert(`Error al procesar la foto: ${msg}`);
         }
     };
+}
+
+function limpiarMarcadoresGanado() {
+    marcadoresGanado.forEach((marcador) => {
+        if (map.hasLayer(marcador)) map.removeLayer(marcador);
+    });
+    marcadoresGanado = [];
+}
+
+function obtenerTelemetriaParaGanado() {
+    if (!ultimasCoordsReales) return null;
+    const alt = Number(document.getElementById("manual-alt").value);
+    const yaw = Number(document.getElementById("drone-heading").value);
+    const pitch = -Math.abs(Number(document.getElementById("gimbal-pitch").value));
+    if (!Number.isFinite(alt) || !Number.isFinite(yaw) || !Number.isFinite(pitch)) {
+        return null;
+    }
+    return {
+        lat: ultimasCoordsReales.lat,
+        lng: ultimasCoordsReales.lon,
+        alt,
+        yaw: normalizarGrados(yaw),
+        pitch
+    };
+}
+
+function proyectarPixelAGPS(pixelX, pixelY, anchoImg, altoImg, origen, telemetria) {
+    const hfov = Number.isFinite(ultimaTelemetriaFoto.hfov) ? ultimaTelemetriaFoto.hfov : 80;
+    const vfov = (altoImg / anchoImg) * hfov;
+    const pctX = (pixelX / anchoImg) - 0.5;
+    const pctY = (pixelY / altoImg) - 0.5;
+    const yawAnimal = normalizarGrados(telemetria.yaw + pctX * hfov);
+    const pitchAnimal = telemetria.pitch + pctY * vfov;
+    const distanciaHorizontal = Math.max(0, Math.abs(telemetria.alt) * Math.tan((90 + pitchAnimal) * (Math.PI / 180)));
+    return proyectar(origen.lat, origen.lng, distanciaHorizontal, yawAnimal);
+}
+
+async function cargarModeloGanado() {
+    if (modeloGanado) return modeloGanado;
+
+    const progresoEl = document.getElementById("progreso-modelo");
+    const barra = document.getElementById("barra-progreso");
+    const texto = document.getElementById("texto-progreso");
+
+    if (progresoEl) progresoEl.style.display = "block";
+    if (barra) barra.value = 0;
+    if (texto) texto.innerText = "Iniciando carga del modelo...";
+
+    // Simular progreso mientras carga
+    let progreso = 0;
+    const intervalo = setInterval(() => {
+        progreso += Math.random() * 10;
+        if (progreso > 90) progreso = 90;
+        if (barra) barra.value = progreso;
+        if (texto) texto.innerText = `Cargando modelo: ${Math.round(progreso)}%`;
+    }, 200);
+
+    try {
+        modeloGanado = await cocoSsd.load();
+        clearInterval(intervalo);
+        if (barra) barra.value = 100;
+        if (texto) texto.innerText = "Modelo cargado exitosamente";
+        setTimeout(() => {
+            if (progresoEl) progresoEl.style.display = "none";
+        }, 1000);
+        return modeloGanado;
+    } catch (error) {
+        clearInterval(intervalo);
+        if (texto) texto.innerText = "Error al cargar el modelo";
+        throw error;
+    }
+}
+
+async function contarGanado() {
+    const statusEl = document.getElementById("resultado-conteo");
+    const imagen = document.getElementById("img-preview");
+    if (!imagen || !imagen.src) {
+        alert("Carga primero una foto de drone.");
+        return;
+    }
+    if (!ultimasCoordsReales) {
+        alert("Primero selecciona una foto con telemetría válida.");
+        return;
+    }
+    const telemetria = obtenerTelemetriaParaGanado();
+    if (!telemetria) {
+        alert("Completa altitud, rumbo y pitch antes de proyectar el ganado.");
+        return;
+    }
+    if (statusEl) statusEl.innerText = "Preparando análisis...";
+    const modelo = await cargarModeloGanado();
+    if (statusEl) statusEl.innerText = "Analizando imagen...";
+    const detecciones = await modelo.detect(imagen);
+    const ganado = detecciones.filter((item) => item.class === "cow" || item.class === "sheep");
+    limpiarMarcadoresGanado();
+    if (ganado.length === 0) {
+        if (statusEl) statusEl.innerText = "No se detectaron animales.";
+        return;
+    }
+    const ancho = imagen.naturalWidth || imagen.width;
+    const alto = imagen.naturalHeight || imagen.height;
+    ganado.forEach((animal) => {
+        const cx = animal.bbox[0] + animal.bbox[2] / 2;
+        const cy = animal.bbox[1] + animal.bbox[3] / 2;
+        const coord = proyectarPixelAGPS(cx, cy, ancho, alto, ultimasCoordsReales, telemetria);
+        const marcador = L.marker([coord.lat, coord.lon], { icon: iconoVaca })
+            .addTo(map)
+            .bindPopup(`<strong>${animal.class}</strong><br>Confianza: ${Math.round((animal.score || 0) * 100)}%`);
+        marcadoresGanado.push(marcador);
+    });
+    if (statusEl) statusEl.innerText = `Detectados ${ganado.length} animales y marcados en el mapa.`;
+}
+
+function bindConteoGanado() {
+    const btnConteo = document.getElementById("btn-contar-ganado");
+    if (!btnConteo) return;
+    btnConteo.onclick = contarGanado;
 }
 
 function bindProyeccion() {
@@ -2506,6 +2642,7 @@ window.onload = function onLoad() {
     bindInstalacionApp();
     addCompassControl();
     bindFotoDrone();
+    bindConteoGanado();
     bindProyeccion();
     abrirMapaBienvenida();
     bindClima();
