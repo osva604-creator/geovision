@@ -186,6 +186,15 @@ const iconoVaca = L.divIcon({
 });
 let modeloGanado = null;
 let marcadoresGanado = [];
+let ultimaFotoFile = null;
+let currentPreviewDataUrl = null;
+let konvaStage = null;
+let konvaLayer = null;
+let konvaImage = null;
+let konvaDetections = [];
+let selectedDetectionGroup = null;
+let conteoTotal = 0;
+let conteoCorreccionesManual = 0;
 
 // =========================================================
 // 2. FUNCIONES DE APOYO
@@ -1131,6 +1140,8 @@ function bindFotoDrone() {
             const fotoURL = URL.createObjectURL(file);
             urlsTemporalesFotos.add(fotoURL);
             const fotoPreviewURL = await generarMiniaturaDataURL(file);
+            ultimaFotoFile = file;
+            currentPreviewDataUrl = fotoPreviewURL;
 
             if (telemetria.pitch !== null) document.getElementById("gimbal-pitch").value = Math.abs(telemetria.pitch).toFixed(1);
             if (telemetria.yaw !== null) document.getElementById("drone-heading").value = normalizarGrados(telemetria.yaw).toFixed(0);
@@ -1223,46 +1234,9 @@ function proyectarPixelAGPS(pixelX, pixelY, anchoImg, altoImg, origen, telemetri
     return proyectar(origen.lat, origen.lng, distanciaHorizontal, yawAnimal);
 }
 
-async function cargarModeloGanado() {
-    if (modeloGanado) return modeloGanado;
-
-    const progresoEl = document.getElementById("progreso-modelo");
-    const barra = document.getElementById("barra-progreso");
-    const texto = document.getElementById("texto-progreso");
-
-    if (progresoEl) progresoEl.style.display = "block";
-    if (barra) barra.value = 0;
-    if (texto) texto.innerText = "Iniciando carga del modelo...";
-
-    // Simular progreso mientras carga
-    let progreso = 0;
-    const intervalo = setInterval(() => {
-        progreso += Math.random() * 10;
-        if (progreso > 90) progreso = 90;
-        if (barra) barra.value = progreso;
-        if (texto) texto.innerText = `Cargando modelo: ${Math.round(progreso)}%`;
-    }, 200);
-
-    try {
-        modeloGanado = await cocoSsd.load();
-        clearInterval(intervalo);
-        if (barra) barra.value = 100;
-        if (texto) texto.innerText = "Modelo cargado exitosamente";
-        setTimeout(() => {
-            if (progresoEl) progresoEl.style.display = "none";
-        }, 1000);
-        return modeloGanado;
-    } catch (error) {
-        clearInterval(intervalo);
-        if (texto) texto.innerText = "Error al cargar el modelo";
-        throw error;
-    }
-}
-
 async function contarGanado() {
     const statusEl = document.getElementById("resultado-conteo");
-    const imagen = document.getElementById("img-preview");
-    if (!imagen || !imagen.src) {
+    if (!ultimaFotoFile) {
         alert("Carga primero una foto de drone.");
         return;
     }
@@ -1276,27 +1250,71 @@ async function contarGanado() {
         return;
     }
     if (statusEl) statusEl.innerText = "Preparando análisis...";
-    const modelo = await cargarModeloGanado();
-    if (statusEl) statusEl.innerText = "Analizando imagen...";
-    const detecciones = await modelo.detect(imagen);
-    const ganado = detecciones.filter((item) => item.class === "cow" || item.class === "sheep");
-    limpiarMarcadoresGanado();
-    if (ganado.length === 0) {
-        if (statusEl) statusEl.innerText = "No se detectaron animales.";
-        return;
+
+    const progresoEl = document.getElementById("progreso-modelo");
+    const barra = document.getElementById("barra-progreso");
+    const texto = document.getElementById("texto-progreso");
+    if (progresoEl) progresoEl.style.display = "block";
+    if (barra) barra.value = 0;
+    if (texto) texto.innerText = "Iniciando inferencia...";
+
+    let progreso = 0;
+    const intervalo = setInterval(() => {
+        progreso = Math.min(90, progreso + Math.random() * 12);
+        if (barra) barra.value = progreso;
+        if (texto) texto.innerText = `Cargando modelo: ${Math.round(progreso)}%`;
+    }, 180);
+
+    try {
+        const canvasInferencia = await VISION_ENGINE.prepareImageForInference(ultimaFotoFile);
+        const detector = await VISION_ENGINE.loadDetector();
+        clearInterval(intervalo);
+        if (barra) barra.value = 100;
+        if (texto) texto.innerText = `Modelo listo (${detector.kind || "fallback"})`;
+
+        const detecciones = await VISION_ENGINE.detectImage(canvasInferencia);
+        const ganado = detecciones.filter((item) => item.id === "cow" || item.id === "sheep" || item.id.includes("cow") || item.id.includes("sheep"));
+        if (ganado.length === 0) {
+            if (statusEl) statusEl.innerText = "No se detectaron animales.";
+            setTimeout(() => { if (progresoEl) progresoEl.style.display = "none"; }, 1200);
+            return;
+        }
+
+        const imagen = document.getElementById("img-preview");
+        const ancho = imagen?.naturalWidth || imagen?.width || 1;
+        const alto = imagen?.naturalHeight || imagen?.height || 1;
+        limpiarMarcadoresGanado();
+        resetConteoLab();
+        const deteccionesProyectadas = [];
+
+        ganado.forEach((animal) => {
+            const cx = animal.x + animal.w / 2;
+            const cy = animal.y + animal.h / 2;
+            const coord = proyectarPixelAGPS(cx, cy, ancho, alto, ultimasCoordsReales, telemetria);
+            const marcador = L.marker([coord.lat, coord.lon], { icon: iconoVaca })
+                .addTo(map)
+                .bindPopup(`<strong>${escapeHtml(animal.id)}</strong><br>Confianza: ${Math.round((animal.confidence || 0) * 100)}%`);
+            marcadoresGanado.push(marcador);
+            deteccionesProyectadas.push({ ...animal, coord, width: ancho, height: alto });
+        });
+
+        renderDetectionsOnKonva(ganado);
+        conteoTotal = ganado.length;
+        conteoCorreccionesManual = 0;
+        actualizarStatusConteo();
+        registrarConteoGeo(ganado.length, conteoCorreccionesManual, ultimasCoordsReales);
+        if (statusEl) statusEl.innerText = `Detectados ${ganado.length} animales. Toca un rectángulo para ajustar el conteo.`;
+    } catch (error) {
+        console.error(error);
+        if (statusEl) statusEl.innerText = "Error en la detección de ganado.";
+        alert(`Error al ejecutar detección: ${error.message || error}`);
+    } finally {
+        clearInterval(intervalo);
+        setTimeout(() => {
+            const progresoElFinal = document.getElementById("progreso-modelo");
+            if (progresoElFinal) progresoElFinal.style.display = "none";
+        }, 1200);
     }
-    const ancho = imagen.naturalWidth || imagen.width;
-    const alto = imagen.naturalHeight || imagen.height;
-    ganado.forEach((animal) => {
-        const cx = animal.bbox[0] + animal.bbox[2] / 2;
-        const cy = animal.bbox[1] + animal.bbox[3] / 2;
-        const coord = proyectarPixelAGPS(cx, cy, ancho, alto, ultimasCoordsReales, telemetria);
-        const marcador = L.marker([coord.lat, coord.lon], { icon: iconoVaca })
-            .addTo(map)
-            .bindPopup(`<strong>${animal.class}</strong><br>Confianza: ${Math.round((animal.score || 0) * 100)}%`);
-        marcadoresGanado.push(marcador);
-    });
-    if (statusEl) statusEl.innerText = `Detectados ${ganado.length} animales y marcados en el mapa.`;
 }
 
 function bindConteoGanado() {
@@ -1304,6 +1322,255 @@ function bindConteoGanado() {
     if (!btnConteo) return;
     btnConteo.onclick = contarGanado;
 }
+
+function activarConteoLab() {
+    const mapEl = document.getElementById("map");
+    const labEl = document.getElementById("conteo-lab");
+    if (mapEl) mapEl.style.display = "none";
+    if (labEl) labEl.style.display = "block";
+}
+
+function resetConteoLab() {
+    const labEl = document.getElementById("conteo-lab");
+    if (!labEl) return;
+    selectedDetectionGroup = null;
+    if (konvaLayer) {
+        konvaLayer.destroyChildren();
+        konvaLayer.draw();
+    }
+    const splitMenu = document.getElementById("split-menu");
+    if (splitMenu) splitMenu.style.display = "none";
+}
+
+function loadHtmlImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("No se pudo cargar la imagen de preview."));
+        img.src = src;
+    });
+}
+
+async function renderDetectionsOnKonva(detecciones) {
+    activarConteoLab();
+    const wrapper = document.getElementById("konva-wrapper");
+    if (!wrapper || !window.Konva || !currentPreviewDataUrl) return;
+
+    const img = await loadHtmlImage(currentPreviewDataUrl);
+    const wrapperWidth = wrapper.clientWidth || 800;
+    const wrapperHeight = wrapper.clientHeight || 520;
+    const scale = Math.min(wrapperWidth / img.width, wrapperHeight / img.height, 1);
+    const displayWidth = Math.round(img.width * scale);
+    const displayHeight = Math.round(img.height * scale);
+    wrapper.style.height = `${displayHeight}px`;
+
+    if (!konvaStage) {
+        konvaStage = new Konva.Stage({ container: "konva-wrapper", width: displayWidth, height: displayHeight });
+        konvaLayer = new Konva.Layer();
+        konvaStage.add(konvaLayer);
+    } else {
+        konvaStage.width(displayWidth);
+        konvaStage.height(displayHeight);
+    }
+
+    konvaLayer.destroyChildren();
+    konvaImage = new Konva.Image({ image: img, x: 0, y: 0, width: displayWidth, height: displayHeight });
+    konvaLayer.add(konvaImage);
+
+    konvaDetections = detecciones;
+    const sourceWidth = VISION_ENGINE.lastInputWidth || img.width;
+    const sourceHeight = VISION_ENGINE.lastInputHeight || img.height;
+    const scaleX = displayWidth / sourceWidth;
+    const scaleY = displayHeight / sourceHeight;
+
+    detecciones.forEach((deteccion, index) => {
+        const rectGroup = new Konva.Group({ x: deteccion.x * scaleX, y: deteccion.y * scaleY, draggable: false });
+        rectGroup.detection = deteccion;
+        rectGroup.id(`detection-${index}`);
+
+        const rect = new Konva.Rect({
+            width: Math.max(24, deteccion.w * scaleX),
+            height: Math.max(24, deteccion.h * scaleY),
+            stroke: "#22c55e",
+            strokeWidth: 3,
+            cornerRadius: 6,
+            dash: [8, 6],
+            fill: "rgba(34,197,94,0.12)"
+        });
+        const label = new Konva.Text({
+            text: `${escapeHtml(deteccion.id)} ${Math.round(deteccion.confidence * 100)}%`,
+            fontSize: 14,
+            fontFamily: "Arial",
+            fill: "#ffffff",
+            padding: 6,
+            visible: true
+        });
+        rectGroup.add(rect);
+        rectGroup.add(label);
+        label.y(4);
+        label.x(4);
+
+        rectGroup.on("click touchstart", (e) => {
+            e.cancelBubble = true;
+            selectedDetectionGroup = rectGroup;
+            highlightSelectedGroup(rectGroup);
+            splitInstance(rectGroup);
+        });
+        rectGroup.on("mouseover", () => { konvaStage.container().style.cursor = "pointer"; });
+        rectGroup.on("mouseout", () => { konvaStage.container().style.cursor = "default"; });
+        konvaLayer.add(rectGroup);
+    });
+
+    konvaLayer.draw();
+    bindZoomLupa();
+}
+
+function highlightSelectedGroup(group) {
+    if (!group || !konvaStage) return;
+    konvaStage.find("Group").each((existing) => {
+        const rect = existing.findOne("Rect");
+        if (rect) rect.stroke("#22c55e");
+    });
+    const rect = group.findOne("Rect");
+    if (rect) rect.stroke("#facc15");
+    selectedDetectionGroup = group;
+}
+
+function splitInstance(group) {
+    const splitMenu = document.getElementById("split-menu");
+    if (!splitMenu || !konvaStage) return;
+    const box = group.getClientRect({ relativeTo: konvaStage });
+    const stageBox = konvaStage.container().getBoundingClientRect();
+    splitMenu.innerHTML = "<strong>Ajustar conteo</strong>";
+    [2, 3, 5].forEach((value) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.innerText = `x${value}`;
+        button.addEventListener("click", () => aplicarSplit(group, value));
+        splitMenu.appendChild(button);
+    });
+    const mas = document.createElement("button");
+    mas.type = "button";
+    mas.innerText = "Más...";
+    mas.addEventListener("click", () => {
+        const valor = Number(prompt("¿Cuántos animales quieres asignar?", "10"));
+        if (Number.isFinite(valor) && valor > 1) {
+            aplicarSplit(group, valor);
+        }
+    });
+    splitMenu.appendChild(mas);
+
+    splitMenu.style.left = `${stageBox.left + box.x + box.width + 12}px`;
+    splitMenu.style.top = `${stageBox.top + box.y}px`;
+    splitMenu.style.display = "block";
+}
+
+function aplicarSplit(group, multiplicador) {
+    if (!group || !group.detection) return;
+    const detection = group.detection;
+    const previo = detection.multiplier || 1;
+    detection.multiplier = multiplicador;
+    conteoCorreccionesManual += Math.max(0, multiplicador - previo);
+    const label = group.findOne("Text");
+    if (label) {
+        label.text(`${escapeHtml(detection.id)} x${multiplicador}`);
+    }
+    group.findOne("Rect").fill("rgba(59,130,246,0.18)");
+    updateConteoTotal();
+    actualizarStatusConteo();
+    hideSplitMenu();
+}
+
+function hideSplitMenu() {
+    const splitMenu = document.getElementById("split-menu");
+    if (splitMenu) splitMenu.style.display = "none";
+}
+
+function updateConteoTotal() {
+    if (!konvaStage) return;
+    conteoTotal = 0;
+    konvaStage.find("Group").each((group) => {
+        const detection = group.detection;
+        if (!detection) return;
+        conteoTotal += Number.isFinite(detection.multiplier) ? detection.multiplier : 1;
+    });
+}
+
+function actualizarStatusConteo() {
+    const statusEl = document.getElementById("resultado-conteo");
+    if (!statusEl) return;
+    statusEl.innerText = `Conteo final actual: ${conteoTotal}. Correcciones manuales: ${conteoCorreccionesManual}.`;
+}
+
+function bindZoomLupa() {
+    if (!konvaStage || !VISION_ENGINE.isMobileDevice()) return;
+    const lupa = document.getElementById("zoom-lupa");
+    if (!lupa) return;
+    const container = konvaStage.container();
+    container.addEventListener("touchmove", actualizarZoomLupa);
+    container.addEventListener("mousemove", actualizarZoomLupa);
+    container.addEventListener("touchend", () => { if (lupa) lupa.style.display = "none"; });
+    container.addEventListener("mouseleave", () => { if (lupa) lupa.style.display = "none"; });
+}
+
+function actualizarZoomLupa(event) {
+    const lupa = document.getElementById("zoom-lupa");
+    if (!lupa || !konvaStage || !currentPreviewDataUrl) return;
+    const rect = konvaStage.container().getBoundingClientRect();
+    const clienteX = event.touches ? event.touches[0].clientX : event.clientX;
+    const clienteY = event.touches ? event.touches[0].clientY : event.clientY;
+    const x = clienteX - rect.left;
+    const y = clienteY - rect.top;
+    const posX = Math.max(0, Math.min(100, (x / konvaStage.width()) * 100));
+    const posY = Math.max(0, Math.min(100, (y / konvaStage.height()) * 100));
+    lupa.style.backgroundImage = `url(${currentPreviewDataUrl})`;
+    lupa.style.backgroundPosition = `${posX}% ${posY}%`;
+    lupa.style.left = `${clienteX}px`;
+    lupa.style.top = `${clienteY - 50}px`;
+    lupa.style.display = "block";
+}
+
+function handleDesktopShortcuts(event) {
+    if (VISION_ENGINE.isMobileDevice()) return;
+    if (!selectedDetectionGroup) return;
+    if (event.key === "d" || event.key === "D") {
+        splitInstance(selectedDetectionGroup);
+    }
+    if (event.key === "Delete") {
+        const group = selectedDetectionGroup;
+        if (!group) return;
+        group.destroy();
+        selectedDetectionGroup = null;
+        konvaLayer.draw();
+        updateConteoTotal();
+        actualizarStatusConteo();
+        hideSplitMenu();
+    }
+}
+
+function registrarConteoGeo(conteoFinal, correccionesManual, ubicacionGPS) {
+    if (!historialFotos.length || !ubicacionGPS) return;
+    const foto = historialFotos[0];
+    const alt = Number(document.getElementById("manual-alt").value) || 0;
+    const hfov = Number(ultimaTelemetriaFoto.hfov) || 73.74;
+    const aspect = document.getElementById("img-preview")?.naturalHeight / document.getElementById("img-preview")?.naturalWidth || 0.75;
+    const ancho = 2 * alt * Math.tan((hfov / 2) * (Math.PI / 180));
+    const alto = ancho * aspect;
+    const area = Math.max(1, ancho * alto);
+    const densidad = conteoFinal / area;
+    foto.conteoGeo = {
+        conteoFinal,
+        correccionesManual,
+        ubicacionGPS: { lat: ubicacionGPS.lat, lon: ubicacionGPS.lon },
+        areaPlanoM2: area,
+        densidadPorM2: densidad
+    };
+    guardarEnLocal();
+}
+
+window.addEventListener("keydown", handleDesktopShortcuts);
+
 
 function bindProyeccion() {
     const btnProyectar = document.getElementById("btn-proyectar");

@@ -9,6 +9,14 @@
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        #conteo-lab { display: none; position: relative; min-height: 65vh; background: #0f172a; overflow: hidden; border-radius: 12px; border: 1px solid #1d4ed8; }
+        #konva-wrapper { width: 100%; height: 100%; }
+        #conteo-lab-status { position: absolute; top: 12px; left: 12px; z-index: 998; padding: 8px 12px; background: rgba(15, 23, 42, 0.85); color: #ecf0f1; border-radius: 8px; font-size: 0.9em; pointer-events: none; }
+        #split-menu { position: absolute; display: none; z-index: 999; min-width: 160px; background: rgba(15, 23, 42, 0.96); border: 1px solid #22c55e; border-radius: 10px; padding: 10px; color: #f8fafc; box-shadow: 0 12px 28px rgba(0,0,0,0.45); }
+        #split-menu button { width: 100%; margin: 4px 0; padding: 8px 10px; border: none; border-radius: 6px; color: #0f172a; background: #a3e635; cursor: pointer; }
+        #zoom-lupa { position: absolute; display: none; width: 120px; height: 120px; border-radius: 50%; border: 3px solid rgba(244, 244, 245, 0.95); background-repeat: no-repeat; background-size: 240%; pointer-events: none; box-shadow: 0 0 20px rgba(0, 0, 0, 0.65); z-index: 1000; }
+    </style>
 </head>
 
 <body>
@@ -28,6 +36,12 @@
         <main>
             <section id="map-container">
                 <div id="map"></div>
+                <div id="conteo-lab">
+                    <div id="conteo-lab-status">Canvas de conteo listo</div>
+                    <div id="konva-wrapper"></div>
+                    <div id="split-menu"></div>
+                    <div id="zoom-lupa"></div>
+                </div>
             </section>
             <button id="btn-mobile-controles" type="button">Controles</button>
 
@@ -202,6 +216,9 @@
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/konva@8.4.3/konva.min.js"></script>
+    <script src="js/vision_engine.js"></script>
     <script src="js/script.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-geometryutil@0.10.3/src/leaflet.geometryutil.min.js"></script>
     <script>
