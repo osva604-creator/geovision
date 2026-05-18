@@ -188,6 +188,10 @@ let modeloGanado = null;
 let marcadoresGanado = [];
 let ultimaFotoFile = null;
 let currentPreviewDataUrl = null;
+let laboratorioFotoURL = null;
+let laboratorioStage = null;
+let laboratorioLayer = null;
+let laboratorioImageObj = null;
 let konvaStage = null;
 let konvaLayer = null;
 let konvaImage = null;
@@ -1224,13 +1228,13 @@ function obtenerTelemetriaParaGanado() {
 }
 
 function proyectarPixelAGPS(pixelX, pixelY, anchoImg, altoImg, origen, telemetria) {
-    const hfov = Number.isFinite(ultimaTelemetriaFoto.hfov) ? ultimaTelemetriaFoto.hfov : 80;
+    const hfov = Number.isFinite(ultimaTelemetriaFoto.hfov) ? ultimaTelemetriaFoto.hfov : 78; // Cambiado a 78° típico para DJI
     const vfov = (altoImg / anchoImg) * hfov;
     const pctX = (pixelX / anchoImg) - 0.5;
     const pctY = (pixelY / altoImg) - 0.5;
     const yawAnimal = normalizarGrados(telemetria.yaw + pctX * hfov);
-    const pitchAnimal = telemetria.pitch + pctY * vfov;
-    const distanciaHorizontal = Math.max(0, Math.abs(telemetria.alt) * Math.tan((90 + pitchAnimal) * (Math.PI / 180)));
+    const pitchAnimal = Math.max(-89, telemetria.pitch + pctY * vfov); // Limitar para evitar infinito
+    const distanciaHorizontal = L.GeometryUtil.calcularDistanciaHorizontal(telemetria.alt, pitchAnimal);
     return proyectar(origen.lat, origen.lng, distanciaHorizontal, yawAnimal);
 }
 
@@ -1320,14 +1324,184 @@ async function contarGanado() {
 function bindConteoGanado() {
     const btnConteo = document.getElementById("btn-contar-ganado");
     if (!btnConteo) return;
-    btnConteo.onclick = contarGanado;
+    btnConteo.onclick = () => {
+        if (!ultimaFotoFile) {
+            alert("Carga primero una foto de drone.");
+            return;
+        }
+        const fotoUrl = URL.createObjectURL(ultimaFotoFile);
+        entrarAlLaboratorio({ url: fotoUrl });
+    };
 }
 
-function activarConteoLab() {
-    const mapEl = document.getElementById("map");
-    const labEl = document.getElementById("conteo-lab");
-    if (mapEl) mapEl.style.display = "none";
-    if (labEl) labEl.style.display = "block";
+function bindLaboratorioUI() {
+    const btnCerrar = document.getElementById("btn-cerrar-lab");
+    if (btnCerrar) btnCerrar.onclick = cerrarLaboratorio;
+    const btnExport = document.getElementById("btn-export-mapa");
+    if (btnExport) btnExport.onclick = exportarLaboratorioAlMapa;
+}
+
+function entrarAlLaboratorio(fotoData) {
+    const lab = document.getElementById("laboratorio-conteo");
+    const holder = document.getElementById("konva-holder");
+    if (!lab || !holder) return;
+
+    lab.classList.remove("hidden");
+    if (laboratorioFotoURL && laboratorioFotoURL !== fotoData.url) {
+        URL.revokeObjectURL(laboratorioFotoURL);
+    }
+    laboratorioFotoURL = fotoData.url;
+
+    holder.innerHTML = "";
+    laboratorioStage = new Konva.Stage({
+        container: "konva-holder",
+        width: holder.clientWidth,
+        height: holder.clientHeight,
+        draggable: true
+    });
+    laboratorioLayer = new Konva.Layer();
+    laboratorioStage.add(laboratorioLayer);
+
+    laboratorioImageObj = new Image();
+    laboratorioImageObj.crossOrigin = "anonymous";
+    laboratorioImageObj.onload = () => {
+        const imgKonva = new Konva.Image({
+            image: laboratorioImageObj,
+            x: 0,
+            y: 0,
+            width: laboratorioStage.width(),
+            height: laboratorioStage.height()
+        });
+        laboratorioLayer.add(imgKonva);
+        laboratorioLayer.draw();
+        setupKonvaZoom(laboratorioStage);
+        document.getElementById("count-progress").innerText = "0%";
+        document.getElementById("total-detected").innerText = "0";
+        document.getElementById("btn-export-mapa").classList.add("hidden");
+    };
+    laboratorioImageObj.src = fotoData.url;
+
+    const btnCerrar = document.getElementById("btn-cerrar-lab");
+    if (btnCerrar) btnCerrar.onclick = cerrarLaboratorio;
+
+    const btnRunIA = document.getElementById("btn-run-ia");
+    if (btnRunIA) {
+        btnRunIA.onclick = async () => {
+            const status = document.getElementById("count-progress");
+            const total = document.getElementById("total-detected");
+            if (!laboratorioImageObj) return;
+            try {
+                const detecciones = await VISION_ENGINE.procesarImagenCompleta(laboratorioImageObj, (p) => {
+                    if (status) status.innerText = p + "%";
+                });
+                if (total) total.innerText = detecciones.length;
+                dibujarCuadros(detecciones, laboratorioLayer);
+                document.getElementById("btn-export-mapa").classList.remove("hidden");
+                window.ultimasDetecciones = detecciones;
+            } catch (error) {
+                alert(`Error al ejecutar el escaneo IA: ${error.message || error}`);
+            }
+        };
+    }
+
+    const btnExport = document.getElementById("btn-export-mapa");
+    if (btnExport) btnExport.onclick = exportarLaboratorioAlMapa;
+}
+
+function cerrarLaboratorio() {
+    const lab = document.getElementById("laboratorio-conteo");
+    if (lab) lab.classList.add("hidden");
+    if (laboratorioStage) {
+        laboratorioStage.destroy();
+        laboratorioStage = null;
+        laboratorioLayer = null;
+    }
+    if (laboratorioFotoURL) {
+        URL.revokeObjectURL(laboratorioFotoURL);
+        laboratorioFotoURL = null;
+    }
+}
+
+function setupKonvaZoom(stage) {
+    stage.on("wheel", (e) => {
+        e.evt.preventDefault();
+        const oldScale = stage.scaleX();
+        const pointer = stage.getPointerPosition();
+        if (!pointer) return;
+        const mousePointTo = {
+            x: (pointer.x - stage.x()) / oldScale,
+            y: (pointer.y - stage.y()) / oldScale
+        };
+        const direction = e.evt.deltaY > 0 ? -1 : 1;
+        const factor = direction > 0 ? 1.05 : 0.95;
+        const newScale = Math.max(0.25, Math.min(3, oldScale * factor));
+        stage.scale({ x: newScale, y: newScale });
+        const newPos = {
+            x: pointer.x - mousePointTo.x * newScale,
+            y: pointer.y - mousePointTo.y * newScale
+        };
+        stage.position(newPos);
+        stage.batchDraw();
+    });
+    stage.on("mousedown touchstart", () => { stage.draggable(true); stage.container().style.cursor = "grabbing"; });
+    stage.on("mouseup touchend", () => { stage.draggable(false); stage.container().style.cursor = "grab"; });
+}
+
+function dibujarCuadros(detecciones, layer) {
+    if (!layer) return;
+    detecciones.forEach((det) => {
+        const rect = new Konva.Rect({
+            x: det.x,
+            y: det.y,
+            width: det.w,
+            height: det.h,
+            stroke: "#8eeea6",
+            strokeWidth: 3,
+            cornerRadius: 6
+        });
+        layer.add(rect);
+    });
+    layer.draw();
+}
+
+function exportarLaboratorioAlMapa() {
+    const detecciones = window.ultimasDetecciones || [];
+    if (!detecciones.length) {
+        alert("No hay detecciones para proyectar al mapa.");
+        return;
+    }
+    if (!ultimasCoordsReales) {
+        alert("No hay coordenadas GPS disponibles para la foto.");
+        return;
+    }
+    const imagen = document.getElementById("img-preview");
+    if (!imagen) {
+        alert("Imagen de preview no disponible.");
+        return;
+    }
+    const ancho = imagen.naturalWidth || imagen.width;
+    const alto = imagen.naturalHeight || imagen.height;
+    const telemetria = obtenerTelemetriaParaGanado();
+    if (!telemetria) {
+        alert("Completa altitud, rumbo y pitch antes de proyectar al mapa.");
+        return;
+    }
+
+    limpiarMarcadoresGanado();
+    const bounds = [];
+    detecciones.forEach((det) => {
+        const cx = det.x + det.w / 2;
+        const cy = det.y + det.h / 2;
+        const coord = proyectarPixelAGPS(cx, cy, ancho, alto, ultimasCoordsReales, telemetria);
+        const marker = L.marker([coord.lat, coord.lon], { icon: iconoVaca })
+            .addTo(map)
+            .bindPopup(`Animal detectado<br>Confianza: ${Math.round((det.confidence || 0) * 100)}%`);
+        marcadoresGanado.push(marker);
+        bounds.push([coord.lat, coord.lon]);
+    });
+    if (bounds.length) {
+        map.flyToBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+    }
 }
 
 function resetConteoLab() {
@@ -2911,6 +3085,7 @@ window.onload = function onLoad() {
     bindFotoDrone();
     bindConteoGanado();
     bindProyeccion();
+    bindLaboratorioUI();
     abrirMapaBienvenida();
     bindClima();
     bindHerramientas();

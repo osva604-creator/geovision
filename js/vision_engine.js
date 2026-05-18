@@ -2,6 +2,7 @@ window.VISION_ENGINE = (function () {
     const ONNX_MODEL_URL = "models/yolov10_medium.onnx";
     const TF_MODEL_URL = "models/yolov8_nano_quant/model.json";
     const TILE_SIZE = 1280;
+    const OVERLAP = 150;
     const MAX_IMAGE_SIZE = 4096;
 
     const state = {
@@ -357,15 +358,16 @@ window.VISION_ENGINE = (function () {
         });
     }
 
-    function getTiles(canvas, tileSize = TILE_SIZE) {
+    function getTiles(canvas, tileSize = TILE_SIZE, overlap = 0) {
         const tiles = [];
-        const cols = Math.ceil(canvas.width / tileSize);
-        const rows = Math.ceil(canvas.height / tileSize);
+        const stride = tileSize - overlap;
+        const cols = Math.max(1, Math.ceil((canvas.width - overlap) / stride));
+        const rows = Math.max(1, Math.ceil((canvas.height - overlap) / stride));
 
         for (let row = 0; row < rows; row += 1) {
             for (let col = 0; col < cols; col += 1) {
-                const x = col * tileSize;
-                const y = row * tileSize;
+                const x = Math.min(canvas.width - tileSize, Math.max(0, col * stride));
+                const y = Math.min(canvas.height - tileSize, Math.max(0, row * stride));
                 const width = Math.min(tileSize, canvas.width - x);
                 const height = Math.min(tileSize, canvas.height - y);
                 const tileCanvas = createCanvas(width, height);
@@ -380,12 +382,74 @@ window.VISION_ENGINE = (function () {
         return tiles;
     }
 
+    async function procesarImagenCompleta(imgElement, onProgress) {
+        const canvas = document.createElement("canvas");
+        canvas.width = imgElement.naturalWidth || imgElement.width;
+        canvas.height = imgElement.naturalHeight || imgElement.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("No se pudo crear el contexto de imagen.");
+        ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
+
+        const tiles = getTiles(canvas, TILE_SIZE, OVERLAP);
+        let allDetections = [];
+        await loadDetector();
+
+        for (let i = 0; i < tiles.length; i += 1) {
+            const tile = tiles[i];
+            const detections = await detectImage(tile.canvas);
+            detections.forEach((det) => {
+                allDetections.push({
+                    x: det.x + tile.x,
+                    y: det.y + tile.y,
+                    w: det.w,
+                    h: det.h,
+                    confidence: det.confidence || det.score || 0
+                });
+            });
+            if (onProgress) onProgress(Math.round(((i + 1) / tiles.length) * 100));
+        }
+
+        return nmsFilter(allDetections);
+    }
+
+    function nmsFilter(boxes, iouThreshold = 0.45) {
+        const sorted = boxes.slice().sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+        const keep = [];
+        for (const current of sorted) {
+            let shouldDiscard = false;
+            for (const selected of keep) {
+                if (computeIoU(current, selected) > iouThreshold) {
+                    shouldDiscard = true;
+                    break;
+                }
+            }
+            if (!shouldDiscard) {
+                keep.push(current);
+            }
+        }
+        return keep;
+    }
+
+    function computeIoU(a, b) {
+        const x1 = Math.max(a.x, b.x);
+        const y1 = Math.max(a.y, b.y);
+        const x2 = Math.min(a.x + a.w, b.x + b.w);
+        const y2 = Math.min(a.y + a.h, b.y + b.h);
+        const interWidth = Math.max(0, x2 - x1);
+        const interHeight = Math.max(0, y2 - y1);
+        const interArea = interWidth * interHeight;
+        const areaA = a.w * a.h;
+        const areaB = b.w * b.h;
+        return areaA && areaB ? interArea / (areaA + areaB - interArea) : 0;
+    }
+
     return {
         isMobileDevice,
         isDesktopDevice,
         loadDetector,
         detectImage,
         prepareImageForInference,
-        getTiles
+        getTiles,
+        procesarImagenCompleta
     };
 })();
