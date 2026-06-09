@@ -423,7 +423,7 @@ function extraerTelemetria(data) {
 
     const zoomRaw = zoomDetectado.valor;
     const zoom = Number.isFinite(zoomRaw) && zoomRaw > 0 ? zoomRaw : 1;
-    const focalEquiv = 24 / zoom;
+    const focalEquiv = 24 * zoom;
     const hfov = 2 * Math.atan(18 / focalEquiv) * (180 / Math.PI);
 
     const resultado = {
@@ -2475,10 +2475,54 @@ function seleccionarTodosLosPoligonos(estadoSeleccionado) {
     guardarEnLocal();
 }
 
+function crearLookAtKMLDesdePuntos(puntos, multiplicadorRango = 1.35) {
+    if (!Array.isArray(puntos) || puntos.length === 0) return "";
+
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+
+    puntos.forEach((pt) => {
+        const lat = Number(pt?.lat);
+        const lng = Number(pt?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+    });
+
+    if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) || !Number.isFinite(minLng) || !Number.isFinite(maxLng)) {
+        return "";
+    }
+
+    const centroLat = (minLat + maxLat) / 2;
+    const centroLng = (minLng + maxLng) / 2;
+    const diagonalM = distanciaMetrosWPML(
+        { lat: minLat, lng: minLng },
+        { lat: maxLat, lng: maxLng }
+    );
+    const rangoM = Math.max(120, diagonalM * multiplicadorRango);
+
+    return `<LookAt>
+      <longitude>${centroLng.toFixed(8)}</longitude>
+      <latitude>${centroLat.toFixed(8)}</latitude>
+      <altitude>0</altitude>
+      <heading>0</heading>
+      <tilt>0</tilt>
+      <range>${rangoM.toFixed(2)}</range>
+      <altitudeMode>relativeToGround</altitudeMode>
+    </LookAt>`;
+}
+
 function convertirPoligonosAKML(poligonos = historialPoligonos) {
+    const puntosGlobales = [];
     const placemarks = poligonos.map((p) => {
         const puntos = p.objeto.getLatLngs()[0] || [];
+        puntosGlobales.push(...puntos);
         const coordenadas = puntos.map((pt) => `${pt.lng},${pt.lat},0`);
+        const lookAtPlacemark = crearLookAtKMLDesdePuntos(puntos, 1.15);
 
         if (coordenadas.length > 0 && coordenadas[0] !== coordenadas[coordenadas.length - 1]) {
             coordenadas.push(coordenadas[0]);
@@ -2487,7 +2531,10 @@ function convertirPoligonosAKML(poligonos = historialPoligonos) {
         return `<Placemark>
     <name>${escaparXml(p.nombre || "Poligono")}</name>
     <description>${escaparXml(p.areaTxt || "")}</description>
+    ${lookAtPlacemark}
     <Polygon>
+      <tessellate>1</tessellate>
+      <altitudeMode>clampToGround</altitudeMode>
       <outerBoundaryIs>
         <LinearRing>
           <coordinates>
@@ -2498,14 +2545,75 @@ function convertirPoligonosAKML(poligonos = historialPoligonos) {
     </Polygon>
   </Placemark>`;
     });
+    const lookAtDocumento = crearLookAtKMLDesdePuntos(puntosGlobales, 1.5);
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
+  <NetworkLinkControl>
+    ${lookAtDocumento}
+  </NetworkLinkControl>
   <Document>
     <name>GeoVision Poligonos</name>
+    <open>1</open>
+    ${lookAtDocumento}
     ${placemarks.join("\n")}
   </Document>
 </kml>`;
+}
+
+async function crearBlobPoligonosKMZ(contenidoKml) {
+    if (!window.JSZip) {
+        throw new Error("JSZip no esta disponible para generar KMZ.");
+    }
+    const zip = new window.JSZip();
+    zip.file("doc.kml", contenidoKml);
+    return zip.generateAsync({
+        type: "blob",
+        mimeType: "application/vnd.google-earth.kmz",
+        compression: "DEFLATE",
+        compressionOptions: { level: 6 }
+    });
+}
+
+function prepararPoligonosParaExportacion(poligonos) {
+    if (!Array.isArray(poligonos) || poligonos.length === 0) return [];
+
+    const deseaEditar = window.confirm("Quieres editar el nombre de los poligonos antes de exportar?");
+    if (!deseaEditar) return poligonos;
+
+    const poligonosExportacion = [];
+    let huboCambios = false;
+
+    for (let i = 0; i < poligonos.length; i += 1) {
+        const poligono = poligonos[i];
+        const nombreActual = String(poligono?.nombre || `Poligono ${i + 1}`).trim();
+        const nombreIngresado = window.prompt(
+            `Nombre para exportar (${i + 1}/${poligonos.length}):`,
+            nombreActual
+        );
+
+        if (nombreIngresado === null) {
+            return null;
+        }
+
+        const nombreFinal = nombreIngresado.trim() || nombreActual;
+        if (nombreFinal !== nombreActual && poligono) {
+            poligono.nombre = nombreFinal;
+            huboCambios = true;
+        }
+
+        poligonosExportacion.push({
+            ...poligono,
+            nombre: nombreFinal
+        });
+    }
+
+    if (huboCambios) {
+        actualizarListaPoligonos();
+        guardarEnLocal();
+    }
+
+    return poligonosExportacion;
 }
 
 function formatearCoordWPML(valor) {
@@ -2699,20 +2807,38 @@ async function crearKMZDJIWPML(waypoints, metadataMision = crearMetadataMision()
     });
 }
 
-function exportarPoligonosKML() {
+async function exportarPoligonosKML() {
     const poligonosSeleccionados = obtenerPoligonosSeleccionados();
     if (poligonosSeleccionados.length === 0) {
         alert("No hay poligonos para exportar.");
         return;
     }
 
-    const contenido = convertirPoligonosAKML(poligonosSeleccionados);
-    const blob = new Blob([contenido], { type: "application/vnd.google-earth.kml+xml;charset=utf-8" });
+    const poligonosParaExportar = prepararPoligonosParaExportacion(poligonosSeleccionados);
+    if (poligonosParaExportar === null) {
+        alert("Exportacion cancelada.");
+        return;
+    }
+
+    const contenido = convertirPoligonosAKML(poligonosParaExportar);
+    const fecha = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    if (!window.JSZip) {
+        alert("No se pudo exportar KMZ: falta JSZip.");
+        return;
+    }
+    let blob;
+    try {
+        blob = await crearBlobPoligonosKMZ(contenido);
+    } catch (error) {
+        console.error("No se pudo generar KMZ de poligonos.", error);
+        alert("No se pudo generar el archivo KMZ.");
+        return;
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const fecha = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     a.href = url;
-    a.download = `geovision-poligonos-${fecha}.kml`;
+    a.download = `geovision-poligonos-${fecha}.kmz`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
