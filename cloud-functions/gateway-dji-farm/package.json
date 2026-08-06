@@ -7,7 +7,11 @@
   },
   "scripts": {
     "start": "functions-framework --target=gateway-dji-farm",
-    "check": "node --check index.js"
+    "check": "node --check index.js",
+    "deploy": "..\\..\\scripts\\check-gcloud.cmd run deploy gateway-dji-farm --source . --region southamerica-east1 --allow-unauthenticated --project geovision-drones",
+    "deploy:function": "..\\..\\scripts\\check-gcloud.cmd functions deploy gateway-dji-farm --gen2 --runtime nodejs20 --region southamerica-east1 --source . --entry-point gateway-dji-farm --trigger-http --allow-unauthenticated --project geovision-drones",
+    "describe": "..\\..\\scripts\\check-gcloud.cmd run services describe gateway-dji-farm --region southamerica-east1 --project geovision-drones",
+    "describe:function": "..\\..\\scripts\\check-gcloud.cmd functions describe gateway-dji-farm --gen2 --region southamerica-east1 --project geovision-drones"
   },
   "dependencies": {
     "@google-cloud/functions-framework": "^3.4.0",

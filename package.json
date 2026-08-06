@@ -1,0 +1,11 @@
+{
+  "name": "geovision",
+  "private": true,
+  "scripts": {
+    "gateway:check": "npm.cmd --prefix cloud-functions/gateway-dji-farm run check",
+    "gateway:describe": "npm.cmd --prefix cloud-functions/gateway-dji-farm run describe",
+    "gateway:describe:function": "npm.cmd --prefix cloud-functions/gateway-dji-farm run describe:function",
+    "gateway:deploy": "npm.cmd --prefix cloud-functions/gateway-dji-farm run deploy",
+    "gateway:deploy:function": "npm.cmd --prefix cloud-functions/gateway-dji-farm run deploy:function"
+  }
+}
