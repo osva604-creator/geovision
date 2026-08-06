@@ -5,6 +5,7 @@ const FormData = require("form-data");
 const DJI_LOGIN_URL = process.env.DJI_LOGIN_URL || "https://uoms.dji.com/api/v1/login";
 const DJI_UPLOAD_URL = process.env.DJI_UPLOAD_URL || "https://uoms.dji.com/api/v1/mission-upload";
 const MAX_KMZ_BYTES = Number(process.env.MAX_KMZ_BYTES || 25 * 1024 * 1024);
+const GATEWAY_CODE_VERSION = "geovision-gateway-2026-08-06";
 
 function normalizarNombreMision(nombreRaw) {
   return (
@@ -42,6 +43,32 @@ function obtenerAccessToken(djiAuthResponse) {
   );
 }
 
+function crearEstadoGateway() {
+  return {
+    success: true,
+    service: "gateway-dji-farm",
+    code_version: GATEWAY_CODE_VERSION,
+    revision: process.env.K_REVISION || null,
+    region: process.env.FUNCTION_REGION || process.env.K_REGION || "unknown",
+    configured: {
+      dji_app_key: Boolean(process.env.DJI_APP_KEY),
+      dji_app_secret: Boolean(process.env.DJI_APP_SECRET)
+    },
+    limits: {
+      max_kmz_bytes: MAX_KMZ_BYTES
+    },
+    expected_request: {
+      method: "POST",
+      content_type: "application/vnd.google-earth.kmz",
+      headers: ["X-Mission-Name", "X-Mission-Date"]
+    },
+    dji_endpoints: {
+      login: DJI_LOGIN_URL,
+      upload: DJI_UPLOAD_URL
+    }
+  };
+}
+
 function formatearErrorDJI(error) {
   if (!error) return "Error desconocido";
   if (error.code === "ENOTFOUND") {
@@ -63,15 +90,20 @@ function formatearErrorDJI(error) {
  */
 functions.http("gateway-dji-farm", async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.set(
     "Access-Control-Allow-Headers",
     "Content-Type, X-Mission-Name, X-Mission-Date"
   );
   res.set("Access-Control-Max-Age", "3600");
+  res.set("X-GeoVision-Gateway-Version", GATEWAY_CODE_VERSION);
 
   if (req.method === "OPTIONS") {
     return res.status(204).send("");
+  }
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    return res.status(200).json(crearEstadoGateway());
   }
 
   if (req.method !== "POST") {
@@ -79,19 +111,6 @@ functions.http("gateway-dji-farm", async (req, res) => {
   }
 
   try {
-    const djiKey = process.env.DJI_APP_KEY;
-    const djiSecret = process.env.DJI_APP_SECRET;
-
-    console.info("DJI endpoint login:", DJI_LOGIN_URL);
-    console.info("DJI endpoint upload:", DJI_UPLOAD_URL);
-
-    if (!djiKey || !djiSecret) {
-      return res.status(500).json({
-        success: false,
-        error: "Faltan variables de entorno DJI_APP_KEY / DJI_APP_SECRET"
-      });
-    }
-
     const missionName = normalizarNombreMision(req.get("X-Mission-Name"));
     const missionDate = req.get("X-Mission-Date") || new Date().toISOString();
     const kmzBuffer = obtenerBufferKMZ(req);
@@ -107,6 +126,26 @@ functions.http("gateway-dji-farm", async (req, res) => {
       return res.status(413).json({
         success: false,
         error: `El KMZ excede el limite de ${MAX_KMZ_BYTES} bytes`
+      });
+    }
+
+    const djiKey = process.env.DJI_APP_KEY;
+    const djiSecret = process.env.DJI_APP_SECRET;
+
+    console.info("DJI endpoint login:", DJI_LOGIN_URL);
+    console.info("DJI endpoint upload:", DJI_UPLOAD_URL);
+    console.info("Mision recibida:", {
+      missionName,
+      missionDate,
+      bytes: kmzBuffer.length,
+      code_version: GATEWAY_CODE_VERSION
+    });
+
+    if (!djiKey || !djiSecret) {
+      return res.status(500).json({
+        success: false,
+        error: "Faltan variables de entorno DJI_APP_KEY / DJI_APP_SECRET",
+        code_version: GATEWAY_CODE_VERSION
       });
     }
 
@@ -148,6 +187,7 @@ functions.http("gateway-dji-farm", async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Mision despachada al dron con exito",
+      code_version: GATEWAY_CODE_VERSION,
       mission_name: missionName,
       mission_date: missionDate,
       dji_ref: djiData?.data?.job_id || djiData?.data?.id || null,
@@ -165,6 +205,7 @@ functions.http("gateway-dji-farm", async (req, res) => {
     return res.status(500).json({
       success: false,
       error: "Falla en el despacho a DJI",
+      code_version: GATEWAY_CODE_VERSION,
       detalle,
       dji_login_url: DJI_LOGIN_URL,
       dji_upload_url: DJI_UPLOAD_URL

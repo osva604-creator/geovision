@@ -1,9 +1,14 @@
 {
   "name": "GeoVision 2026",
   "short_name": "GeoVision",
+  "id": "./",
+  "description": "Herramienta geoespacial para mediciones, fotos de drone y misiones de campo.",
+  "lang": "es-AR",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
+  "orientation": "any",
+  "categories": ["maps", "productivity", "utilities"],
   "background_color": "#0f1c14",
   "theme_color": "#123524",
   "icons": [

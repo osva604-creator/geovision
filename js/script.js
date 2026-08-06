@@ -29,6 +29,7 @@ const IDB_STORE_FOTOS = "foto_previews";
 const IDB_STORE_APP_STATE = "app_state";
 const PITCH_GIMBAL_DEFAULT = 25;
 const URL_GATEWAY_DJI_FARM = "https://gateway-dji-farm-498689304873.southamerica-east1.run.app";
+const GATEWAY_CODE_VERSION_ESPERADA = "geovision-gateway-2026-08-06";
 const HEADER_MISSION_NAME = "X-Mission-Name";
 const HEADER_MISSION_DATE = "X-Mission-Date";
 
@@ -1253,6 +1254,11 @@ async function contarGanado() {
         alert("Completa altitud, rumbo y pitch antes de proyectar el ganado.");
         return;
     }
+    const visionEngine = window.VISION_ENGINE;
+    if (!visionEngine) {
+        alert("El motor de vision no esta cargado en esta version de la app.");
+        return;
+    }
     if (statusEl) statusEl.innerText = "Preparando análisis...";
 
     const progresoEl = document.getElementById("progreso-modelo");
@@ -1270,13 +1276,13 @@ async function contarGanado() {
     }, 180);
 
     try {
-        const canvasInferencia = await VISION_ENGINE.prepareImageForInference(ultimaFotoFile);
-        const detector = await VISION_ENGINE.loadDetector();
+        const canvasInferencia = await visionEngine.prepareImageForInference(ultimaFotoFile);
+        const detector = await visionEngine.loadDetector();
         clearInterval(intervalo);
         if (barra) barra.value = 100;
         if (texto) texto.innerText = `Modelo listo (${detector.kind || "fallback"})`;
 
-        const detecciones = await VISION_ENGINE.detectImage(canvasInferencia);
+        const detecciones = await visionEngine.detectImage(canvasInferencia);
         const ganado = detecciones.filter((item) => item.id === "cow" || item.id === "sheep" || item.id.includes("cow") || item.id.includes("sheep"));
         if (ganado.length === 0) {
             if (statusEl) statusEl.innerText = "No se detectaron animales.";
@@ -1345,6 +1351,10 @@ function entrarAlLaboratorio(fotoData) {
     const lab = document.getElementById("laboratorio-conteo");
     const holder = document.getElementById("konva-holder");
     if (!lab || !holder) return;
+    if (!window.Konva) {
+        alert("El laboratorio de conteo no esta disponible porque falta Konva.");
+        return;
+    }
 
     lab.classList.remove("hidden");
     if (laboratorioFotoURL && laboratorioFotoURL !== fotoData.url) {
@@ -1390,8 +1400,13 @@ function entrarAlLaboratorio(fotoData) {
             const status = document.getElementById("count-progress");
             const total = document.getElementById("total-detected");
             if (!laboratorioImageObj) return;
+            const visionEngine = window.VISION_ENGINE;
+            if (!visionEngine) {
+                alert("El motor de vision no esta cargado en esta version de la app.");
+                return;
+            }
             try {
-                const detecciones = await VISION_ENGINE.procesarImagenCompleta(laboratorioImageObj, (p) => {
+                const detecciones = await visionEngine.procesarImagenCompleta(laboratorioImageObj, (p) => {
                     if (status) status.innerText = p + "%";
                 });
                 if (total) total.innerText = detecciones.length;
@@ -1448,7 +1463,7 @@ function setupKonvaZoom(stage) {
 }
 
 function dibujarCuadros(detecciones, layer) {
-    if (!layer) return;
+    if (!layer || !window.Konva) return;
     detecciones.forEach((det) => {
         const rect = new Konva.Rect({
             x: det.x,
@@ -1529,7 +1544,8 @@ function loadHtmlImage(src) {
 async function renderDetectionsOnKonva(detecciones) {
     activarConteoLab();
     const wrapper = document.getElementById("konva-wrapper");
-    if (!wrapper || !window.Konva || !currentPreviewDataUrl) return;
+    const visionEngine = window.VISION_ENGINE;
+    if (!wrapper || !window.Konva || !visionEngine || !currentPreviewDataUrl) return;
 
     const img = await loadHtmlImage(currentPreviewDataUrl);
     const wrapperWidth = wrapper.clientWidth || 800;
@@ -1553,8 +1569,8 @@ async function renderDetectionsOnKonva(detecciones) {
     konvaLayer.add(konvaImage);
 
     konvaDetections = detecciones;
-    const sourceWidth = VISION_ENGINE.lastInputWidth || img.width;
-    const sourceHeight = VISION_ENGINE.lastInputHeight || img.height;
+    const sourceWidth = visionEngine.lastInputWidth || img.width;
+    const sourceHeight = visionEngine.lastInputHeight || img.height;
     const scaleX = displayWidth / sourceWidth;
     const scaleY = displayHeight / sourceHeight;
 
@@ -1678,7 +1694,8 @@ function actualizarStatusConteo() {
 }
 
 function bindZoomLupa() {
-    if (!konvaStage || !VISION_ENGINE.isMobileDevice()) return;
+    const visionEngine = window.VISION_ENGINE;
+    if (!konvaStage || !visionEngine || typeof visionEngine.isMobileDevice !== "function" || !visionEngine.isMobileDevice()) return;
     const lupa = document.getElementById("zoom-lupa");
     if (!lupa) return;
     const container = konvaStage.container();
@@ -1706,7 +1723,8 @@ function actualizarZoomLupa(event) {
 }
 
 function handleDesktopShortcuts(event) {
-    if (VISION_ENGINE.isMobileDevice()) return;
+    const visionEngine = window.VISION_ENGINE;
+    if (visionEngine && typeof visionEngine.isMobileDevice === "function" && visionEngine.isMobileDevice()) return;
     if (!selectedDetectionGroup) return;
     if (event.key === "d" || event.key === "D") {
         splitInstance(selectedDetectionGroup);
@@ -2883,45 +2901,78 @@ function crearMetadataMision(nombrePersonalizado = "") {
     };
 }
 
+async function leerRespuestaGateway(response) {
+    const texto = await response.text();
+    if (!texto) return {};
+    try {
+        return JSON.parse(texto);
+    } catch (_error) {
+        return { raw: texto };
+    }
+}
+
+function resumirPayloadGateway(payload) {
+    if (!payload) return "sin detalle";
+    if (typeof payload === "string") return payload;
+    if (payload.detalle) return String(payload.detalle);
+    if (payload.error) return String(payload.error);
+    if (payload.message) return String(payload.message);
+    if (payload.raw) return String(payload.raw);
+    try {
+        return JSON.stringify(payload);
+    } catch (_error) {
+        return "respuesta no serializable";
+    }
+}
+
+function mostrarErrorGateway(titulo, error) {
+    const detalle = error && error.message ? error.message : String(error || "sin detalle");
+    const detalleCorto = detalle.length > 700 ? `${detalle.slice(0, 700)}...` : detalle;
+    console.error(titulo, error);
+    alert(`${titulo}\n\nDetalle: ${detalleCorto}`);
+}
+
+async function consultarEstadoGatewayDJI() {
+    const response = await fetch(URL_GATEWAY_DJI_FARM, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+        cache: "no-store"
+    });
+    const payload = await leerRespuestaGateway(response);
+    if (!response.ok) {
+        throw new Error(`Gateway health respondio ${response.status}: ${resumirPayloadGateway(payload)}`);
+    }
+    return payload;
+}
+
 async function enviarMisionADron(kmzBlob, metadataMision) {
     console.log("Despachando mision desde GeoVision...");
 
-    try {
-        const response = await fetch(URL_GATEWAY_DJI_FARM, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/vnd.google-earth.kmz",
-                [HEADER_MISSION_NAME]: String(metadataMision.nombre),
-                [HEADER_MISSION_DATE]: String(metadataMision.fechaIso)
-            },
-            body: kmzBlob
-        });
+    const response = await fetch(URL_GATEWAY_DJI_FARM, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/vnd.google-earth.kmz",
+            "Accept": "application/json",
+            [HEADER_MISSION_NAME]: String(metadataMision.nombre),
+            [HEADER_MISSION_DATE]: String(metadataMision.fechaIso)
+        },
+        body: kmzBlob
+    });
 
-        if (!response.ok) {
-            const detalle = await response.text();
-            throw new Error(`Gateway respondio con estado ${response.status}: ${detalle}`);
-        }
+    const resultado = await leerRespuestaGateway(response);
 
-        let resultado;
-        try {
-            resultado = await response.json();
-        } catch (_errorJson) {
-            resultado = {};
-        }
-
-        if (resultado.success) {
-            alert("🚀 Mision enviada al dron con exito!");
-            console.log("Mision:", metadataMision);
-            console.log("Respuesta DJI:", resultado);
-            return;
-        }
-
-        alert("⚠️ El gateway respondio, pero no confirmo exito.");
-        console.log("Respuesta DJI:", resultado);
-    } catch (error) {
-        console.error("Falla en el despacho:", error);
-        alert("❌ Error al conectar con el Gateway de San Pablo");
+    if (!response.ok) {
+        throw new Error(`Gateway respondio ${response.status}: ${resumirPayloadGateway(resultado)}`);
     }
+
+    if (resultado.success) {
+        alert("🚀 Mision enviada al dron con exito!");
+        console.log("Mision:", metadataMision);
+        console.log("Respuesta DJI:", resultado);
+        return resultado;
+    }
+
+    throw new Error(`Gateway respondio sin confirmar exito: ${resumirPayloadGateway(resultado)}`);
 }
 
 async function exportarDJIFarm() {
@@ -2946,8 +2997,7 @@ async function exportarDJIFarm() {
         const kmzBlob = await crearBlobMisionKMZ(poligonosSeleccionados, metadataMision);
         await enviarMisionADron(kmzBlob, metadataMision);
     } catch (error) {
-        console.error("No se pudo generar/enviar la mision:", error);
-        alert("❌ No se pudo preparar o enviar la mision KMZ.");
+        mostrarErrorGateway("❌ No se pudo preparar o enviar la mision KMZ.", error);
     } finally {
         if (btnDJIFarm) {
             btnDJIFarm.disabled = false;
@@ -2960,16 +3010,31 @@ async function probarConexionDJI() {
     const btnTest = document.getElementById("btn-dji-test");
     if (btnTest) {
         btnTest.disabled = true;
-        btnTest.textContent = "Probando...";
+        btnTest.textContent = "Consultando gateway...";
     }
 
     try {
+        const estadoGateway = await consultarEstadoGatewayDJI();
+        console.log("Estado gateway DJI:", estadoGateway);
+
+        if (estadoGateway.code_version !== GATEWAY_CODE_VERSION_ESPERADA) {
+            throw new Error(`El gateway desplegado no coincide con esta PWA. Version esperada: ${GATEWAY_CODE_VERSION_ESPERADA}. Version recibida: ${estadoGateway.code_version || "sin version"}.`);
+        }
+
+        const configuracion = estadoGateway.configured || {};
+        if (!configuracion.dji_app_key || !configuracion.dji_app_secret) {
+            throw new Error("El gateway responde, pero faltan variables DJI_APP_KEY / DJI_APP_SECRET en Cloud Run.");
+        }
+
+        const enviarPrueba = window.confirm("Gateway activo y configurado. ¿Enviar un KMZ de prueba a DJI?");
+        if (!enviarPrueba) return;
+
+        if (btnTest) btnTest.textContent = "Enviando KMZ...";
         const metadataMision = crearMetadataMision("geovision-test-conexion");
         const kmzBlob = await crearBlobPruebaDJI(metadataMision);
         await enviarMisionADron(kmzBlob, metadataMision);
     } catch (error) {
-        console.error("No se pudo ejecutar la prueba DJI:", error);
-        alert("❌ Fallo la prueba de comunicacion con DJI.");
+        mostrarErrorGateway("❌ Fallo la prueba de comunicacion con DJI.", error);
     } finally {
         if (btnTest) {
             btnTest.disabled = false;
