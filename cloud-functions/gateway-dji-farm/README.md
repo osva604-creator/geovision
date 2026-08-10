@@ -1,168 +1,227 @@
 # GeoVision DJI Gateway
 
-HTTP gateway used by the GeoVision PWA to send generated WPML/KMZ missions to DJI.
+Base modular para migrar el gateway DJI de GeoVision hacia una futura
+integracion oficial con DJI SmartFarm / DJI Smart Farm Ecosystem para Agras
+T70/T70P.
 
-The default integration mode is `flighthub-sync`: the gateway requests temporary
-FlightHub storage credentials, uploads the KMZ, and calls the FlightHub OpenAPI
-`/wayline/finish-upload` endpoint so the route appears in FlightHub.
+Esta fase no implementa llamadas reales a SmartFarm. No hay endpoints,
+cabeceras, firmas, credenciales ni formatos oficiales inventados. El adaptador
+real queda bloqueado hasta recibir documentacion oficial de DJI.
 
-References:
-
-- FlightHub Sync maps storage credentials to `/openapi/v0.1/project/sts-token`.
-- FlightHub Sync maps route upload notification to `/openapi/v0.1/wayline/finish-upload`.
-- FlightHub Sync maps task creation to `/openapi/v0.1/flight-task`.
-
-## Local check
-
-```powershell
-npm.cmd install
-npm.cmd run check
-$env:PORT='8787'; npm.cmd start
-```
-
-In another terminal:
-
-```powershell
-curl.exe -s http://127.0.0.1:8787
-```
-
-Expected response includes:
-
-```json
-{
-  "success": true,
-  "service": "gateway-dji-farm",
-  "code_version": "geovision-gateway-2026-08-10",
-  "configured": {
-    "mode": "flighthub-sync",
-    "ready": false,
-    "missing": [
-      "DJI_FLIGHTHUB_USER_TOKEN",
-      "DJI_FLIGHTHUB_PROJECT_UUID"
-    ]
-  }
-}
-```
-
-## FlightHub Sync configuration
-
-Required Cloud Run environment variables:
+## Arquitectura
 
 ```text
-DJI_GATEWAY_MODE=flighthub-sync
-DJI_FLIGHTHUB_USER_TOKEN=<Organization Key / X-User-Token>
-DJI_FLIGHTHUB_PROJECT_UUID=<Project UUID / X-Project-Uuid>
+index.js
+src/app.js
+src/config.js
+src/domain/task-draft.js
+src/middleware/auth.js
+src/middleware/cors.js
+src/middleware/request-id.js
+src/providers/smartfarm-mock.js
+src/providers/smartfarm.js
+src/providers/flighthub-legacy.js
+test/app.test.js
 ```
 
-Optional:
+- `index.js`: registra la funcion HTTP en Google Functions Framework.
+- `src/app.js`: rutas HTTP versionadas, healthcheck y compatibilidad legacy.
+- `src/config.js`: lectura segura de variables de entorno.
+- `src/domain/task-draft.js`: modelo neutral de borrador agricola.
+- `src/providers/smartfarm-mock.js`: mock en memoria para pruebas locales.
+- `src/providers/smartfarm.js`: punto de extension real, todavia no implementado.
+- `src/providers/flighthub-legacy.js`: compatibilidad heredada, no SmartFarm.
+- `src/middleware/*`: request ID, CORS y autenticacion.
+
+## Modos
+
+`DJI_GATEWAY_MODE=disabled` es el valor predeterminado y no contacta ningun
+servicio DJI.
 
 ```text
-DJI_FLIGHTHUB_REGION=us
-DJI_FLIGHTHUB_BASE_URL=https://es-flight-api-us.djigate.com
-DJI_FLIGHTHUB_API_PREFIX=/openapi/v0.1
-DJI_FLIGHTHUB_LANGUAGE=en
-DJI_STORAGE_URL_STYLE=virtual
+disabled          Default seguro. No transmite nada a DJI.
+smartfarm-mock    Crea borradores simulados en memoria. No transmite nada a DJI.
+smartfarm         Reservado. Devuelve 501 SMARTFARM_ADAPTER_NOT_IMPLEMENTED.
+flighthub-legacy  Compatibilidad FlightHub anterior. No compatible con Agras T70/T70P.
+```
+
+No existe fallback automatico hacia FlightHub ni hacia legacy-direct.
+
+## Variables
+
+Ver tambien `.env.example`.
+
+```text
+DJI_GATEWAY_MODE=disabled
+ALLOWED_ORIGINS=http://127.0.0.1:5500,http://localhost:5500
+AUTH_MODE=off
+MAX_JSON_BODY_BYTES=1048576
 MAX_KMZ_BYTES=26214400
 ```
 
-Supported `DJI_FLIGHTHUB_REGION` values are `us`, `eu`, and `cn`. Use
-`DJI_FLIGHTHUB_BASE_URL` when DJI gives you a specific public-cloud or
-on-premises OpenAPI host.
+`AUTH_MODE=off` se permite solo en desarrollo o tests. En produccion el gateway
+falla de forma cerrada si la autenticacion no esta configurada.
 
-Validate FlightHub credentials without uploading a KMZ:
-
-```powershell
-curl.exe -s "https://gateway-dji-farm-498689304873.southamerica-east1.run.app?probe=flightHub"
-```
-
-If the token is wrong, DJI responds through the gateway with a `502` and the DJI
-error code, for example `200401 invalid token format`.
-
-To create a FlightHub task after uploading the route:
+Modo JWT local:
 
 ```text
-DJI_CREATE_FLIGHT_TASK=true
-DJI_FLIGHTHUB_DOCK_SN=<dock serial number>
+AUTH_MODE=oidc-jwt
+AUTH_JWT_ISSUER=https://issuer.example
+AUTH_JWT_AUDIENCE=geovision-gateway
+AUTH_JWT_HS256_SECRET=<secret-from-secret-manager>
 ```
 
-Optional task overrides:
+Guardar secretos en Google Secret Manager. No poner tokens permanentes en
+`script.js` ni en el navegador.
+
+## API
 
 ```text
-DJI_FLIGHTHUB_TASK_ENDPOINT=/flight-task
-DJI_FLIGHTHUB_TASK_FILE_FIELD=fileId
-DJI_FLIGHTHUB_WAYLINE_TYPE=WAYPOINT
-DJI_FLIGHTHUB_TASK_TYPE=IMMEDIATE
-DJI_FLIGHTHUB_RTH_ALTITUDE=50
-DJI_FLIGHTHUB_OUT_OF_CONTROL_ACTION=RETURN_TO_HOME
-DJI_FLIGHTHUB_MIN_BATTERY=50
-DJI_FLIGHTHUB_MIN_STORAGE=0
+GET  /healthz
+GET  /v1/capabilities
+POST /v1/agras/task-drafts
+GET  /v1/agras/task-drafts/:id
 ```
 
-## Legacy direct mode
+`GET /healthz` es publico y solo muestra informacion no sensible.
 
-The older experimental mode is still available, but it is no longer the default:
+Las rutas de borradores requieren autenticacion salvo `AUTH_MODE=off` en
+desarrollo/tests.
 
-```text
-DJI_GATEWAY_MODE=legacy-direct
-DJI_APP_KEY=<legacy app key>
-DJI_APP_SECRET=<legacy app secret>
-DJI_LOGIN_URL=<legacy login url>
-DJI_UPLOAD_URL=<legacy upload url>
-```
+El POST legacy `/` ya no envia nada a FlightHub salvo que el modo sea
+explicitamente `flighthub-legacy`. En los modos nuevos devuelve una respuesta de
+compatibilidad con `transmittedToDji: false`.
 
-Use this only if DJI provides a direct mission upload API for your account.
+## Modelo de borrador
 
-## Deploy
-
-The current public URL contains project number `498689304873`:
-
-```text
-https://gateway-dji-farm-498689304873.southamerica-east1.run.app
-```
-
-Find the matching project ID:
-
-```powershell
-gcloud projects list --filter="projectNumber=498689304873" --format="table(projectId,projectNumber,name)"
-```
-
-Set the project:
-
-```powershell
-gcloud auth login
-gcloud config set project geovision-drones
-gcloud config get-value project
-```
-
-Inspect both possible resource types:
-
-```powershell
-npm.cmd run describe
-npm.cmd run describe:function
-```
-
-If the service exists as a plain Cloud Run service, deploy with:
-
-```powershell
-npm.cmd run deploy
-```
-
-If it exists as a Cloud Functions Gen2 / Cloud Run Function resource, deploy with:
-
-```powershell
-npm.cmd run deploy:function
-```
-
-After deployment:
-
-```powershell
-curl.exe -s https://gateway-dji-farm-498689304873.southamerica-east1.run.app
-```
-
-The response must include:
+Este JSON es un modelo interno de GeoVision. No es una mision ejecutable y no se
+declara compatible con DJI.
 
 ```json
-"code_version": "geovision-gateway-2026-08-10"
+{
+  "schemaVersion": "geovision.agras.taskDraft.v1",
+  "externalId": "lot-42",
+  "name": "Lote norte prueba",
+  "operationType": "spray",
+  "fieldBoundary": {
+    "type": "Polygon",
+    "coordinates": [[
+      [-65.20312, -26.83712],
+      [-65.20288, -26.83712],
+      [-65.20288, -26.83688],
+      [-65.20312, -26.83688],
+      [-65.20312, -26.83712]
+    ]]
+  },
+  "exclusionZones": [],
+  "desiredParameters": {
+    "operatorApproved": false,
+    "applicationRate": 12.5,
+    "flightAltitudeMeters": 4,
+    "swathWidthMeters": 7
+  },
+  "createdAt": "2026-08-10T12:00:00.000Z",
+  "coordinateReferenceSystem": "EPSG:4326"
+}
 ```
 
-If the PWA says the gateway version does not match, production is still running an older revision.
+Validaciones incluidas:
+
+- Campos obligatorios y tipos.
+- Rechazo de propiedades inesperadas en el nivel superior, GeoJSON y parametros.
+- Longitudes maximas de texto.
+- Latitud entre `-90` y `90`.
+- Longitud entre `-180` y `180`.
+- Anillos cerrados con cantidad suficiente de puntos.
+- Numeros finitos y positivos para parametros cuantitativos.
+- Limite maximo del body JSON.
+- `desiredParameters.operatorApproved` debe ser `false`.
+
+## Ejemplos locales
+
+```powershell
+cd cloud-functions/gateway-dji-farm
+npm.cmd install
+npm.cmd run check
+npm.cmd test
+$env:DJI_GATEWAY_MODE='smartfarm-mock'
+$env:AUTH_MODE='off'
+$env:ALLOWED_ORIGINS='http://127.0.0.1:5500'
+$env:PORT='8787'
+npm.cmd start
+```
+
+Health:
+
+```powershell
+curl.exe -s http://127.0.0.1:8787/healthz
+```
+
+Capacidades:
+
+```powershell
+curl.exe -s http://127.0.0.1:8787/v1/capabilities
+```
+
+Crear borrador en mock:
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:8787/v1/agras/task-drafts `
+  -H "Content-Type: application/json" `
+  --data-binary "@draft.json"
+```
+
+Respuesta esperada en `smartfarm-mock`:
+
+```json
+{
+  "id": "draft_...",
+  "status": "DRAFT_NOT_SENT",
+  "provider": "smartfarm-mock",
+  "transmittedToDji": false,
+  "executionAllowed": false,
+  "warning": "Mock mode only. No information was sent to DJI and this is not an executable mission."
+}
+```
+
+El mock guarda datos solo en memoria. Los borradores se pierden al reiniciar la
+instancia.
+
+## Produccion
+
+Antes de conectar el entorno real se necesita documentacion oficial del programa
+DJI Smart Farm Ecosystem para Agras T70/T70P. Hasta entonces:
+
+- No configurar endpoints reales SmartFarm.
+- No convertir KMZ/WPML en formato SmartFarm.
+- No activar `flighthub-legacy` como camino Agras.
+- No usar `--allow-unauthenticated` sin autenticacion valida en la aplicacion o
+  una capa frontal equivalente.
+
+El rate limiting de produccion debe implementarse en una capa distribuida como
+Cloud Armor, API Gateway u otra solucion equivalente. No confiar en contadores
+en memoria dentro de Cloud Run.
+
+Los scripts `deploy` y `deploy:function` usan `--no-allow-unauthenticated` por
+defecto. Si se expone publicamente, la aplicacion debe requerir y verificar
+tokens validos.
+
+## Tests
+
+```powershell
+npm.cmd run check
+npm.cmd test
+```
+
+Las pruebas cubren:
+
+- Health en `disabled`.
+- No exposicion de secretos en `/healthz`.
+- Rechazo de origen CORS no permitido.
+- Rechazo de solicitudes sin autenticacion.
+- Rechazo de geometria invalida.
+- Creacion y consulta de borradores en `smartfarm-mock`.
+- `transmittedToDji: false`.
+- `smartfarm` no implementado con `501`.
+- Imposibilidad de activar FlightHub desde otros modos.
+- Limite de tamano de body.

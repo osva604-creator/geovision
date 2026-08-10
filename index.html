@@ -94,10 +94,15 @@
 
                 <h3>Calculador de Objetivo (Mira)</h3>
                 <div id="panel-mira" style="background: #333; padding: 10px; border-radius: 5px; font-size: 0.8em;">
-                    <p>Ángulo Gimbal (Pitch): <input type="number" id="gimbal-pitch" value="45" style="width: 50px;"> °
+                    <p style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">Ángulo Gimbal (Pitch):
+                        <input type="number" id="gimbal-pitch" value="45" min="0" max="90" step="0.1" style="width: 56px;"> °
+                        <label style="display:inline-flex; align-items:center; gap:3px; color:#bdc3c7;">
+                            <input type="checkbox" id="gimbal-pitch-manual"> Manual
+                        </label>
+                        <small id="estado-camara-mira" style="color:#f1c40f;">Cámara: 25° · Estimado</small>
                     </p>
                     <p>Rumbo (Heading): <input type="number" id="drone-heading" value="0" style="width: 50px;"> °</p>
-                    <p>Altitud de Vuelo: <input type="number" id="manual-alt" value="100" style="width: 50px;"> mts</p>
+                    <p>Altitud sobre terreno/aprox.: <input type="number" id="manual-alt" value="100" style="width: 50px;"> mts</p>
                     <button id="btn-proyectar" class="tool-btn tool-btn-danger" style="width: 100%;">🎯 Calcular Punto
                         Objetivo</button>
                     <div id="resultado-mira" style="margin-top:10px; color: #f1c40f;"></div>
@@ -216,6 +221,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-geometryutil@0.10.3/src/leaflet.geometryutil.min.js"></script>
+    <script src="js/camera-projection.js"></script>
     <script src="js/script.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
