@@ -1,4 +1,4 @@
-const CACHE_NAME = "geovision-v6";
+const CACHE_NAME = "geovision-v8";
 const APP_SHELL = [
     "./",
     "./index.html",

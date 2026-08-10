@@ -29,7 +29,7 @@ const IDB_STORE_FOTOS = "foto_previews";
 const IDB_STORE_APP_STATE = "app_state";
 const PITCH_GIMBAL_DEFAULT = 25;
 const URL_GATEWAY_DJI_FARM = "https://gateway-dji-farm-498689304873.southamerica-east1.run.app";
-const GATEWAY_CODE_VERSION_ESPERADA = "geovision-gateway-2026-08-06";
+const GATEWAY_CODE_VERSION_ESPERADA = "geovision-gateway-2026-08-10";
 const HEADER_MISSION_NAME = "X-Mission-Name";
 const HEADER_MISSION_DATE = "X-Mission-Date";
 
@@ -2925,6 +2925,46 @@ function resumirPayloadGateway(payload) {
     }
 }
 
+function obtenerDiagnosticoGateway(estadoGateway) {
+    const configured = estadoGateway?.configured || {};
+    const missing = Array.isArray(configured.missing) ? configured.missing : [];
+    return {
+        mode: configured.mode || "desconocido",
+        ready: configured.ready === true,
+        missing
+    };
+}
+
+function describirModoGateway(mode) {
+    if (mode === "flighthub-sync") return "FlightHub Sync/OpenAPI";
+    if (mode === "legacy-direct") return "DJI legacy directo";
+    return mode || "desconocido";
+}
+
+function validarEstadoGatewayDJI(estadoGateway) {
+    if (estadoGateway.code_version !== GATEWAY_CODE_VERSION_ESPERADA) {
+        throw new Error(`El gateway desplegado no coincide con esta PWA. Version esperada: ${GATEWAY_CODE_VERSION_ESPERADA}. Version recibida: ${estadoGateway.code_version || "sin version"}.`);
+    }
+
+    const diagnostico = obtenerDiagnosticoGateway(estadoGateway);
+    if (!diagnostico.ready) {
+        const faltantes = diagnostico.missing.length > 0 ? diagnostico.missing.join(", ") : "sin detalle de variables";
+        throw new Error(`Gateway activo en modo ${describirModoGateway(diagnostico.mode)}, pero no esta listo. Faltan: ${faltantes}.`);
+    }
+
+    return diagnostico;
+}
+
+function crearMensajeExitoGateway(resultado) {
+    if (resultado?.flight_hub?.flight_task) {
+        return "Mision subida a FlightHub y tarea de vuelo creada.";
+    }
+    if (resultado?.flight_hub?.wayline_uuid) {
+        return `Mision subida a FlightHub. Ruta: ${resultado.flight_hub.wayline_uuid}`;
+    }
+    return "Mision enviada al gateway DJI con exito.";
+}
+
 function mostrarErrorGateway(titulo, error) {
     const detalle = error && error.message ? error.message : String(error || "sin detalle");
     const detalleCorto = detalle.length > 700 ? `${detalle.slice(0, 700)}...` : detalle;
@@ -2941,6 +2981,19 @@ async function consultarEstadoGatewayDJI() {
     const payload = await leerRespuestaGateway(response);
     if (!response.ok) {
         throw new Error(`Gateway health respondio ${response.status}: ${resumirPayloadGateway(payload)}`);
+    }
+    return payload;
+}
+
+async function consultarProbeGatewayDJI() {
+    const response = await fetch(`${URL_GATEWAY_DJI_FARM}?probe=flightHub`, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+        cache: "no-store"
+    });
+    const payload = await leerRespuestaGateway(response);
+    if (!response.ok) {
+        throw new Error(`Gateway probe respondio ${response.status}: ${resumirPayloadGateway(payload)}`);
     }
     return payload;
 }
@@ -2966,7 +3019,7 @@ async function enviarMisionADron(kmzBlob, metadataMision) {
     }
 
     if (resultado.success) {
-        alert("🚀 Mision enviada al dron con exito!");
+        alert(crearMensajeExitoGateway(resultado));
         console.log("Mision:", metadataMision);
         console.log("Respuesta DJI:", resultado);
         return resultado;
@@ -3017,16 +3070,15 @@ async function probarConexionDJI() {
         const estadoGateway = await consultarEstadoGatewayDJI();
         console.log("Estado gateway DJI:", estadoGateway);
 
-        if (estadoGateway.code_version !== GATEWAY_CODE_VERSION_ESPERADA) {
-            throw new Error(`El gateway desplegado no coincide con esta PWA. Version esperada: ${GATEWAY_CODE_VERSION_ESPERADA}. Version recibida: ${estadoGateway.code_version || "sin version"}.`);
+        const diagnostico = validarEstadoGatewayDJI(estadoGateway);
+        const modo = describirModoGateway(diagnostico.mode);
+        if (diagnostico.mode === "flighthub-sync") {
+            if (btnTest) btnTest.textContent = "Validando FlightHub...";
+            const probeFlightHub = await consultarProbeGatewayDJI();
+            console.log("Probe FlightHub:", probeFlightHub);
         }
 
-        const configuracion = estadoGateway.configured || {};
-        if (!configuracion.dji_app_key || !configuracion.dji_app_secret) {
-            throw new Error("El gateway responde, pero faltan variables DJI_APP_KEY / DJI_APP_SECRET en Cloud Run.");
-        }
-
-        const enviarPrueba = window.confirm("Gateway activo y configurado. ¿Enviar un KMZ de prueba a DJI?");
+        const enviarPrueba = window.confirm(`Gateway activo en modo ${modo}. Queres enviar un KMZ de prueba?`);
         if (!enviarPrueba) return;
 
         if (btnTest) btnTest.textContent = "Enviando KMZ...";
