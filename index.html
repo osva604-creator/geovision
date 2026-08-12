@@ -10,25 +10,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="css/style.css">
     <style>
-        .interface-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(8, 15, 27, 0.98); z-index: 9999; display: flex; flex-direction: column; }
         .hidden { display: none !important; }
-        .lab-header { padding: 15px; display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.98); border-bottom: 1px solid #2c3e50; }
-        .lab-header h2 { margin: 0; font-size: 1.1rem; color: #f8fafc; }
-        .lab-header .btn-icon { background: transparent; border: none; color: #f8fafc; font-size: 1.2rem; cursor: pointer; }
-        #lab-stats { color: #94a3b8; font-size: 0.9rem; }
-        #canvas-container { flex: 1; overflow: hidden; cursor: grab; background: #000; display: flex; align-items: center; justify-content: center; }
-        #konva-holder { width: 100%; height: 100%; }
-        .lab-controls { padding: 20px; background: rgba(15, 23, 42, 0.98); display: flex; gap: 10px; justify-content: center; align-items: center; }
-        .lab-controls .btn-primary, .lab-controls .btn-success { border: none; border-radius: 8px; padding: 10px 18px; cursor: pointer; font-weight: 700; }
-        .btn-primary { background: #2563eb; color: #fff; }
-        .btn-success { background: #16a34a; color: #fff; }
-        .lab-controls small { color: #94a3b8; }
-
-        #konva-wrapper { width: 100%; height: 100%; }
-        #conteo-lab-status { position: absolute; top: 12px; left: 12px; z-index: 998; padding: 8px 12px; background: rgba(15, 23, 42, 0.85); color: #ecf0f1; border-radius: 8px; font-size: 0.9em; pointer-events: none; }
-        #split-menu { position: absolute; display: none; z-index: 999; min-width: 160px; background: rgba(15, 23, 42, 0.96); border: 1px solid #22c55e; border-radius: 10px; padding: 10px; color: #f8fafc; box-shadow: 0 12px 28px rgba(0,0,0,0.45); }
-        #split-menu button { width: 100%; margin: 4px 0; padding: 8px 10px; border: none; border-radius: 6px; color: #0f172a; background: #a3e635; cursor: pointer; }
-        #zoom-lupa { position: absolute; display: none; width: 120px; height: 120px; border-radius: 50%; border: 3px solid rgba(244, 244, 245, 0.95); background-repeat: no-repeat; background-size: 240%; pointer-events: none; box-shadow: 0 0 20px rgba(0, 0, 0, 0.65); z-index: 1000; }
     </style>
 </head>
 
