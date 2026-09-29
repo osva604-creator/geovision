@@ -12,9 +12,16 @@
     "check:deploy": "npm run build && wrangler deploy --dry-run",
     "build:pages": "node scripts/build-pages.mjs",
     "deploy:pages": "npm run build:pages && wrangler pages deploy --cwd hosting/pages --branch main",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs test/*.test.js",
     "test:kmz:browser": "node scripts/test-satellite-browser.mjs",
-    "test:raster:browser": "node scripts/test-raster-browser.mjs"
+    "test:raster:browser": "node scripts/test-raster-browser.mjs",
+    "mira:test": "node --test test/camera-projection.test.js",
+    "gateway:check": "npm.cmd --prefix cloud-functions/gateway-dji-farm run check",
+    "gateway:test": "npm.cmd --prefix cloud-functions/gateway-dji-farm test",
+    "gateway:describe": "npm.cmd --prefix cloud-functions/gateway-dji-farm run describe",
+    "gateway:describe:function": "npm.cmd --prefix cloud-functions/gateway-dji-farm run describe:function",
+    "gateway:deploy": "npm.cmd --prefix cloud-functions/gateway-dji-farm run deploy",
+    "gateway:deploy:function": "npm.cmd --prefix cloud-functions/gateway-dji-farm run deploy:function"
   },
   "dependencies": {
     "@clerk/backend": "3.18.1"

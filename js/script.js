@@ -31,6 +31,17 @@ const IDB_STORE_SATELLITE = "satellite_layers";
 const IDB_STORE_FOTOS = "foto_previews";
 const IDB_STORE_APP_STATE = "app_state";
 const PITCH_GIMBAL_DEFAULT = 25;
+let pitchCamaraFotoBase = {
+    valid: true,
+    source: "estimated",
+    label: "Estimado",
+    estimated: true,
+    depressionDeg: PITCH_GIMBAL_DEFAULT,
+    rawPitchDeg: null,
+    field: null,
+    confirmed: false
+};
+let estadoPitchCamara = { ...pitchCamaraFotoBase };
 const URL_GATEWAY_DJI_FARM = "/api/dji/mission";
 const HEADER_MISSION_NAME = "X-Mission-Name";
 const HEADER_MISSION_DATE = "X-Mission-Date";
@@ -375,6 +386,210 @@ function resolverCandidatoTelemetria(campos, fuentes, candidatos, opciones = {})
     return { valor: null, fuente: null, candidato: null, numeros: [], rechazos };
 }
 
+function crearPitchEstimadoCamara() {
+    return {
+        valid: true,
+        source: "estimated",
+        label: "Estimado",
+        estimated: true,
+        depressionDeg: PITCH_GIMBAL_DEFAULT,
+        rawPitchDeg: null,
+        field: null,
+        confirmed: false
+    };
+}
+
+function clonarPitchCamara(estado) {
+    const depressionDeg = Number(estado && estado.depressionDeg);
+    if (!estado || estado.valid === false || !Number.isFinite(depressionDeg) || depressionDeg < 0 || depressionDeg > 90) {
+        return crearPitchEstimadoCamara();
+    }
+    const source = estado.source === "manual" || estado.source === "dji" || estado.source === "estimated"
+        ? estado.source
+        : "estimated";
+    const label = source === "manual" ? "Manual" : (source === "dji" ? "DJI" : "Estimado");
+    return {
+        valid: true,
+        source,
+        label,
+        estimated: source === "estimated",
+        depressionDeg,
+        rawPitchDeg: Number.isFinite(Number(estado.rawPitchDeg)) ? Number(estado.rawPitchDeg) : null,
+        field: estado.field || null,
+        candidato: estado.candidato || null,
+        confirmed: estado.confirmed === true
+    };
+}
+
+function formatearAnguloCamara(valor) {
+    const numero = Math.round(Number(valor) * 10) / 10;
+    if (!Number.isFinite(numero)) return "--";
+    return Number.isInteger(numero) ? numero.toFixed(0) : numero.toFixed(1);
+}
+
+function actualizarEstadoCamaraMira() {
+    const estadoEl = document.getElementById("estado-camara-mira");
+    if (!estadoEl) return;
+    if (estadoPitchCamara && estadoPitchCamara.valid === false) {
+        estadoEl.textContent = "Cámara: --° · Manual";
+        estadoEl.style.color = "#f1c40f";
+        return;
+    }
+    const estado = clonarPitchCamara(estadoPitchCamara);
+    estadoEl.textContent = `Cámara: ${formatearAnguloCamara(estado.depressionDeg)}° · ${estado.label}`;
+    estadoEl.style.color = estado.source === "estimated" ? "#f1c40f" : "#bdc3c7";
+}
+
+function resolverPitchDjiDesdeValor(valor, fuente, candidato) {
+    const math = window.GeoVisionCamera;
+    const metadata = candidato ? { [candidato]: valor } : { GimbalPitchDegree: valor };
+    const resuelto = math && typeof math.resolveCameraPitch === "function"
+        ? math.resolveCameraPitch({ metadata, defaultDepressionDeg: PITCH_GIMBAL_DEFAULT })
+        : null;
+    if (!resuelto || !resuelto.valid || resuelto.source !== "dji") return crearPitchEstimadoCamara();
+    return {
+        ...resuelto,
+        field: fuente || resuelto.field || null,
+        candidato: candidato || resuelto.field || "GimbalPitchDegree",
+        confirmed: true
+    };
+}
+
+function resolverPitchDesdeFotoGuardada(foto) {
+    if (foto && foto.pitchInfo) return clonarPitchCamara(foto.pitchInfo);
+    if (foto && typeof foto.pitch === "number") {
+        if (foto.pitch > 0 && Math.abs(foto.pitch - PITCH_GIMBAL_DEFAULT) < 0.001) {
+            return crearPitchEstimadoCamara();
+        }
+        return resolverPitchDjiDesdeValor(foto.pitch, null, "GimbalPitchDegree");
+    }
+    return crearPitchEstimadoCamara();
+}
+
+function establecerPitchBaseFoto(pitchInfo) {
+    pitchCamaraFotoBase = clonarPitchCamara(pitchInfo);
+    estadoPitchCamara = clonarPitchCamara(pitchCamaraFotoBase);
+
+    const manualEl = document.getElementById("gimbal-pitch-manual");
+    const inputEl = document.getElementById("gimbal-pitch");
+    if (manualEl) manualEl.checked = false;
+    if (inputEl) inputEl.value = formatearAnguloCamara(estadoPitchCamara.depressionDeg);
+    actualizarEstadoCamaraMira();
+}
+
+function obtenerPitchCamaraActivo() {
+    const manualEl = document.getElementById("gimbal-pitch-manual");
+    const inputEl = document.getElementById("gimbal-pitch");
+    const manualActivo = manualEl && manualEl.checked === true;
+    const math = window.GeoVisionCamera;
+
+    if (manualActivo) {
+        const resuelto = math && typeof math.resolveCameraPitch === "function"
+            ? math.resolveCameraPitch({
+                manualEnabled: true,
+                manualValue: inputEl ? inputEl.value : null,
+                defaultDepressionDeg: PITCH_GIMBAL_DEFAULT
+            })
+            : null;
+        if (!resuelto || resuelto.valid === false) {
+            estadoPitchCamara = {
+                valid: false,
+                source: "manual",
+                label: "Manual",
+                estimated: false,
+                depressionDeg: null,
+                confirmed: false,
+                reason: "invalid_manual_pitch"
+            };
+            actualizarEstadoCamaraMira();
+            return estadoPitchCamara;
+        }
+        estadoPitchCamara = clonarPitchCamara({ ...resuelto, confirmed: true });
+        actualizarEstadoCamaraMira();
+        return estadoPitchCamara;
+    }
+
+    estadoPitchCamara = clonarPitchCamara(pitchCamaraFotoBase);
+    if (inputEl) inputEl.value = formatearAnguloCamara(estadoPitchCamara.depressionDeg);
+    actualizarEstadoCamaraMira();
+    return estadoPitchCamara;
+}
+
+function confirmarPitchEstimadoParaGuardar() {
+    const pitch = obtenerPitchCamaraActivo();
+    if (!pitch || pitch.valid === false || !Number.isFinite(Number(pitch.depressionDeg))) {
+        alert("El ángulo de cámara debe ser un número entre 0° y 90°.");
+        return null;
+    }
+
+    if (pitch.estimated && pitch.confirmed !== true) {
+        const ok = confirm(`No se encontró GimbalPitchDegree real. La mira usará ${PITCH_GIMBAL_DEFAULT}° estimado; confirmalo o activá Manual para cambiarlo antes de guardar.`);
+        if (!ok) return null;
+
+        estadoPitchCamara = clonarPitchCamara({
+            ...pitch,
+            source: "manual",
+            label: "Manual",
+            estimated: false,
+            confirmed: true
+        });
+        const manualEl = document.getElementById("gimbal-pitch-manual");
+        const inputEl = document.getElementById("gimbal-pitch");
+        if (manualEl) manualEl.checked = true;
+        if (inputEl) inputEl.value = formatearAnguloCamara(estadoPitchCamara.depressionDeg);
+        actualizarEstadoCamaraMira();
+        return estadoPitchCamara;
+    }
+
+    return pitch;
+}
+
+function obtenerFovVerticalActual(anchoImg, altoImg) {
+    const math = window.GeoVisionCamera;
+    const hfov = Number.isFinite(Number(ultimaTelemetriaFoto.hfov)) ? Number(ultimaTelemetriaFoto.hfov) : 73.74;
+    if (math && typeof math.estimateVerticalFov === "function") {
+        const calculado = math.estimateVerticalFov(hfov, anchoImg, altoImg);
+        if (Number.isFinite(calculado)) return calculado;
+    }
+    return (altoImg / anchoImg) * hfov;
+}
+
+function mensajeProyeccionInvalida(resultado) {
+    if (!resultado) return "No existe una intersección razonable con el terreno.";
+    if (resultado.reason === "camera_near_horizon") {
+        return "La cámara apunta demasiado cerca del horizonte para calcular una mira confiable.";
+    }
+    if (resultado.reason === "invalid_input") {
+        return "No se puede calcular: revisá altura, rumbo, ángulo y dimensiones de imagen.";
+    }
+    return "No existe una intersección razonable con el terreno.";
+}
+
+function bindPitchCamaraUI() {
+    const manualEl = document.getElementById("gimbal-pitch-manual");
+    const inputEl = document.getElementById("gimbal-pitch");
+    if (!inputEl) return;
+
+    inputEl.addEventListener("input", () => {
+        if (manualEl && manualEl.checked) {
+            obtenerPitchCamaraActivo();
+        }
+    });
+    if (manualEl) {
+        manualEl.addEventListener("change", () => {
+            if (manualEl.checked) {
+                const pitch = obtenerPitchCamaraActivo();
+                if (pitch.valid === false) {
+                    alert("El ángulo manual debe estar entre 0° y 90°.");
+                }
+                return;
+            }
+            establecerPitchBaseFoto(pitchCamaraFotoBase);
+        });
+    }
+    establecerPitchBaseFoto(pitchCamaraFotoBase);
+}
+
 function validarTelemetria(telemetria) {
     const validaciones = { errores: [], advertencias: [] };
 
@@ -420,16 +635,9 @@ function extraerTelemetria(data) {
         "DigitalZoomRatio", "ZoomRatio", "Zoom", "drone-dji:DigitalZoomRatio"
     ]);
     const pitchDetectado = resolverCandidatoTelemetria(campos, fuentes, [
-        "GimbalPitchDegree", "drone-dji:GimbalPitchDegree", "CameraGimbalPitchDegree",
-        "CameraPitchDegree", "CameraPitch", "GimbalPitch", "GimbalPitchAngle",
-        { nombre: "GimbalDegree", indice: 1 },
-        { nombre: "GimbalRollPitchYaw", indice: 1 },
-        { nombre: "GimbalRollPitchYawDegree", indice: 1 },
-        { nombre: "CameraGimbalRollPitchYaw", indice: 1 },
-        { nombre: "CameraGimbalRollPitchYawDegree", indice: 1 },
-        { nombre: "GimbalRPY", indice: 1 },
-        "FlightPitchDegree",
-        "Pitch"
+        "GimbalPitchDegree",
+        "drone-dji:GimbalPitchDegree",
+        "XMP-drone-dji:GimbalPitchDegree"
     ]);
     const yawDetectado = resolverCandidatoTelemetria(campos, fuentes, [
         "FlightYawDegree", "drone-dji:FlightYawDegree", "DroneYawDegree", "GPSImgDirection", "Heading",
@@ -480,12 +688,19 @@ function extraerTelemetria(data) {
     const validaciones = validarTelemetria(resultado);
     resultado.validaciones = validaciones;
 
-    // Si pitch sigue siendo null después de extracción y validación, usar default
-    if (resultado.pitch === null) {
-        resultado.pitch = PITCH_GIMBAL_DEFAULT;
-        resultado.fuentes.pitch = `valor por defecto (${PITCH_GIMBAL_DEFAULT}°)`;
+    let pitchInfo = null;
+    if (resultado.pitch !== null) {
+        pitchInfo = resolverPitchDjiDesdeValor(resultado.pitch, pitchDetectado.fuente, pitchDetectado.candidato);
+        resultado.pitch = pitchInfo.rawPitchDeg;
+        resultado.fuentes.pitch = pitchInfo.field || pitchDetectado.fuente;
+        resultado.candidatos.pitch = pitchInfo.candidato || pitchDetectado.candidato;
+    } else {
+        pitchInfo = crearPitchEstimadoCamara();
+        resultado.pitch = -pitchInfo.depressionDeg;
+        resultado.fuentes.pitch = `valor estimado (${PITCH_GIMBAL_DEFAULT}°)`;
         resultado.candidatos.pitch = "defaultPitch";
     }
+    resultado.pitchInfo = pitchInfo;
 
     return resultado;
 }
@@ -745,11 +960,13 @@ function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
     fotoSeleccionadaId = foto.id;
     gestorCapasSatelitales?.refreshPhotos();
     ultimasCoordsReales = { lat: foto.lat, lon: foto.lon };
+    const pitchInfo = resolverPitchDesdeFotoGuardada(foto);
     ultimaTelemetriaFoto = {
         zoom: Number.isFinite(foto.zoom) && foto.zoom > 0 ? foto.zoom : 1,
-        hfov: Number.isFinite(foto.hfov) && foto.hfov > 0 ? foto.hfov : 73.74
+        hfov: Number.isFinite(foto.hfov) && foto.hfov > 0 ? foto.hfov : 73.74,
+        pitchInfo
     };
-    if (typeof foto.pitch === "number") document.getElementById("gimbal-pitch").value = Math.abs(foto.pitch).toFixed(1);
+    establecerPitchBaseFoto(pitchInfo);
     if (typeof foto.yaw === "number") document.getElementById("drone-heading").value = normalizarGrados(foto.yaw).toFixed(0);
     if (typeof foto.alt === "number") document.getElementById("manual-alt").value = Math.abs(foto.alt).toFixed(0);
 
@@ -804,6 +1021,10 @@ function crearObjetivoHistorial(datos, opciones = {}) {
     const rumbo = Number.isFinite(datos.rumbo) ? normalizarGrados(datos.rumbo) : 0;
     const nombre = opciones.nombre || `Objetivo ${historialObjetivos.length + 1}`;
     const puntoFlecha = proyectar(origen.lat, origen.lon, distancia * 0.72, rumbo);
+    const pitchCamara = datos.pitchCamara ? clonarPitchCamara(datos.pitchCamara) : null;
+    const detallePitch = pitchCamara
+        ? `<br><small>Cámara: ${formatearAnguloCamara(pitchCamara.depressionDeg)}° · ${pitchCamara.label}</small>`
+        : "";
 
     const marcador = L.marker([destino.lat, destino.lon], { icon: iconoMira })
         .bindPopup(
@@ -811,7 +1032,7 @@ function crearObjetivoHistorial(datos, opciones = {}) {
                 <strong style="color:#2980b9;">${escapeHtml(nombre)}</strong><br>
                 <small>${decimalADMS(destino.lat, true)}<br>${decimalADMS(destino.lon, false)}</small><br>
                 <hr style="margin:5px 0;">
-                <span>Distancia: <strong>${distancia.toFixed(1)} m</strong></span>
+                <span>Distancia: <strong>${distancia.toFixed(1)} m</strong></span>${detallePitch}
             </div>`
         );
     const linea = L.polyline(
@@ -832,6 +1053,7 @@ function crearObjetivoHistorial(datos, opciones = {}) {
         destino,
         rumbo,
         distancia,
+        pitchCamara,
         objeto: grupo,
         marcador,
         seleccionado: opciones.seleccionado !== false
@@ -1174,10 +1396,10 @@ function bindFotoDrone() {
             urlsTemporalesFotos.add(fotoURL);
             const fotoPreviewURL = await generarMiniaturaDataURL(file);
 
-            if (telemetria.pitch !== null) document.getElementById("gimbal-pitch").value = Math.abs(telemetria.pitch).toFixed(1);
+            establecerPitchBaseFoto(telemetria.pitchInfo);
             if (telemetria.yaw !== null) document.getElementById("drone-heading").value = normalizarGrados(telemetria.yaw).toFixed(0);
             if (telemetria.alt !== null) document.getElementById("manual-alt").value = Math.abs(telemetria.alt).toFixed(0);
-            ultimaTelemetriaFoto = { zoom: telemetria.zoom, hfov: telemetria.hfov };
+            ultimaTelemetriaFoto = { zoom: telemetria.zoom, hfov: telemetria.hfov, pitchInfo: telemetria.pitchInfo };
 
             document.getElementById("telemetria-drone").innerHTML = `<strong>Foto:</strong> ${escapeHtml(file.name)}<br>${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}`;
 
@@ -1195,6 +1417,7 @@ function bindFotoDrone() {
                     alt: telemetria.alt,
                     zoom: telemetria.zoom,
                     hfov: telemetria.hfov,
+                    pitchInfo: telemetria.pitchInfo,
                     fotoPreviewURL
                 },
                 fotoURL
@@ -1229,14 +1452,30 @@ function bindFotoDrone() {
 }
 
 function proyectarPixelAGPS(pixelX, pixelY, anchoImg, altoImg, origen, telemetria) {
-    const hfov = Number.isFinite(ultimaTelemetriaFoto.hfov) ? ultimaTelemetriaFoto.hfov : 78; // Cambiado a 78° típico para DJI
-    const vfov = (altoImg / anchoImg) * hfov;
-    const pctX = (pixelX / anchoImg) - 0.5;
-    const pctY = (pixelY / altoImg) - 0.5;
-    const yawAnimal = normalizarGrados(telemetria.yaw + pctX * hfov);
-    const pitchAnimal = Math.max(-89, telemetria.pitch + pctY * vfov); // Limitar para evitar infinito
-    const distanciaHorizontal = L.GeometryUtil.calcularDistanciaHorizontal(telemetria.alt, pitchAnimal);
-    return proyectar(origen.lat, origen.lng, distanciaHorizontal, yawAnimal);
+    const math = window.GeoVisionCamera;
+    if (!math || typeof math.projectPixelToGround !== "function") return null;
+    const hfov = Number.isFinite(Number(ultimaTelemetriaFoto.hfov)) ? Number(ultimaTelemetriaFoto.hfov) : 73.74;
+    const resultado = math.projectPixelToGround({
+        pixelX,
+        pixelY,
+        imageWidth: anchoImg,
+        imageHeight: altoImg,
+        latitude: origen.lat,
+        longitude: origen.lng ?? origen.lon,
+        heightM: telemetria.alt,
+        yawDeg: telemetria.yaw,
+        depressionDeg: telemetria.depressionDeg,
+        horizontalFovDeg: hfov,
+        verticalFovDeg: obtenerFovVerticalActual(anchoImg, altoImg)
+    });
+    if (!resultado.valid) return null;
+    return {
+        lat: resultado.lat,
+        lon: resultado.lon,
+        distancia: resultado.distanceM,
+        rumbo: resultado.bearingDeg,
+        depressionDeg: resultado.effectiveDepressionDeg
+    };
 }
 
 function bindProyeccion() {
@@ -1261,9 +1500,8 @@ function bindProyeccion() {
         }
 
         const alt = parseFloat(inputAlt);
-        const pitchOriginal = parseFloat(inputPitch);
         const head = parseFloat(inputHead);
-        if (!Number.isFinite(alt) || !Number.isFinite(pitchOriginal) || !Number.isFinite(head)) {
+        if (!Number.isFinite(alt) || !Number.isFinite(head)) {
             alert("No se puede calcular: los datos del gimbal, rumbo y altura deben ser numericos.");
             return null;
         }
@@ -1272,21 +1510,45 @@ function bindProyeccion() {
             return null;
         }
 
-        const pitchAbs = Math.abs(pitchOriginal);
-        let distH = 0;
-        if (pitchAbs < 89.5) {
-            const anguloVerticalRad = ((90 - pitchAbs) * Math.PI) / 180;
-            distH = alt * Math.tan(anguloVerticalRad);
+        const pitchCamara = confirmarPitchEstimadoParaGuardar();
+        if (!pitchCamara) return null;
+
+        const math = window.GeoVisionCamera;
+        if (!math || typeof math.projectPixelToGround !== "function") {
+            alert("No se puede calcular: el modulo de camara no esta disponible.");
+            return null;
         }
 
+        const imagen = document.getElementById("img-preview");
+        const anchoImg = imagen?.naturalWidth || imagen?.width || 1000;
+        const altoImg = imagen?.naturalHeight || imagen?.height || 750;
         const rumbo = normalizarGrados(head);
-        const obj = proyectar(ultimasCoordsReales.lat, ultimasCoordsReales.lon, distH, rumbo);
+        const proyeccion = math.projectPixelToGround({
+            pixelX: anchoImg / 2,
+            pixelY: altoImg / 2,
+            imageWidth: anchoImg,
+            imageHeight: altoImg,
+            latitude: ultimasCoordsReales.lat,
+            longitude: ultimasCoordsReales.lon,
+            heightM: alt,
+            yawDeg: rumbo,
+            depressionDeg: pitchCamara.depressionDeg,
+            horizontalFovDeg: ultimaTelemetriaFoto.hfov,
+            verticalFovDeg: obtenerFovVerticalActual(anchoImg, altoImg)
+        });
+        if (!proyeccion.valid) {
+            alert(mensajeProyeccionInvalida(proyeccion));
+            return null;
+        }
+
+        const obj = { lat: proyeccion.lat, lon: proyeccion.lon };
         return {
             alt,
-            rumbo,
-            distH,
+            rumbo: proyeccion.bearingDeg,
+            distH: proyeccion.distanceM,
             obj,
-            origen: { lat: ultimasCoordsReales.lat, lon: ultimasCoordsReales.lon }
+            origen: { lat: ultimasCoordsReales.lat, lon: ultimasCoordsReales.lon },
+            pitchCamara: clonarPitchCamara(pitchCamara)
         };
     };
 
@@ -2509,7 +2771,8 @@ function guardarEnLocal() {
             yaw: f.yaw,
             alt: f.alt,
             zoom: f.zoom,
-            hfov: f.hfov
+            hfov: f.hfov,
+            pitchInfo: f.pitchInfo ? clonarPitchCamara(f.pitchInfo) : null
         })),
         objetivos: historialObjetivos.map((o) => ({
             id: o.id,
@@ -2518,6 +2781,7 @@ function guardarEnLocal() {
             destino: o.destino,
             rumbo: o.rumbo,
             distancia: o.distancia,
+            pitchCamara: o.pitchCamara ? clonarPitchCamara(o.pitchCamara) : null,
             seleccionado: o.seleccionado !== false
         })),
         ultimasCoordsReales
@@ -2583,7 +2847,8 @@ function hidratarDesdeDatos(datos) {
                 yaw: typeof f.yaw === "number" ? f.yaw : null,
                 alt: typeof f.alt === "number" ? f.alt : null,
                 zoom: typeof f.zoom === "number" ? f.zoom : 1,
-                hfov: typeof f.hfov === "number" ? f.hfov : 73.74
+                hfov: typeof f.hfov === "number" ? f.hfov : 73.74,
+                pitchInfo: f.pitchInfo ? clonarPitchCamara(f.pitchInfo) : null
             });
             idbGetFotoPreview(foto.id).then((preview) => {
                 if (!preview) return;
@@ -2603,7 +2868,8 @@ function hidratarDesdeDatos(datos) {
                     origen: o.origen,
                     obj: o.destino,
                     rumbo: typeof o.rumbo === "number" ? o.rumbo : 0,
-                    distH: typeof o.distancia === "number" ? o.distancia : map.distance([o.origen.lat, o.origen.lon], [o.destino.lat, o.destino.lon])
+                    distH: typeof o.distancia === "number" ? o.distancia : map.distance([o.origen.lat, o.origen.lon], [o.destino.lat, o.destino.lon]),
+                    pitchCamara: o.pitchCamara ? clonarPitchCamara(o.pitchCamara) : null
                 },
                 {
                     id: o.id || Date.now(),
@@ -2702,6 +2968,7 @@ window.initializeGeoVision = function initializeGeoVision() {
     }
     bindInstalacionApp();
     addCompassControl();
+    bindPitchCamaraUI();
     bindFotoDrone();
     bindProyeccion();
     abrirMapaBienvenida();

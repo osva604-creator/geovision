@@ -1,4 +1,4 @@
-const CACHE_NAME = "geovision-public-v9";
+const CACHE_NAME = "geovision-public-v10";
 const APP_SHELL = [
     "./",
     "./index.html",
@@ -6,6 +6,7 @@ const APP_SHELL = [
     "./js/script.js",
     "./js/auth.js",
     "./js/geometria.js",
+    "./js/camera-projection.js",
     "./js/kmz.js",
     "./js/raster.js",
     "./js/raster-import.js",
