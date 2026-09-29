@@ -1,0 +1,12 @@
+# Copiar a .dev.vars (ignorado por Git) para desarrollo local.
+CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+WEATHER_API_KEY=
+# Opcionales: sin estos valores el despacho DJI permanece bloqueado.
+DJI_APP_KEY=
+DJI_APP_SECRET=
+# IDs de Clerk autorizados para despachar, separados por comas.
+DJI_ALLOWED_USER_IDS=
+# Configurar endpoints reales confirmados por el proveedor DJI.
+DJI_LOGIN_URL=
+DJI_UPLOAD_URL=

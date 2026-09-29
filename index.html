@@ -18,14 +18,22 @@
     <div id="welcome-screen" class="welcome-screen">
         <div class="welcome-card">
             <h1>GeoVision</h1>
-            <p>Bienvenido a GeoVision 2026</p>
-            <button id="btn-welcome-start" type="button">Ingresar</button>
+            <p>Ingresá con tu cuenta para abrir tus mapas.</p>
+            <p id="auth-notice" role="status" aria-live="polite">Conectando con el servicio de acceso…</p>
+            <button id="btn-welcome-start" type="button" disabled>Ingresar</button>
+            <button id="btn-auth-retry" type="button" class="hidden">Reintentar</button>
+            <noscript>Activá JavaScript para iniciar sesión en GeoVision.</noscript>
         </div>
     </div>
 
-    <div id="app-container">
+    <div id="app-container" class="hidden">
         <header>
             <h1>GeoVision 2026</h1>
+            <div class="account-controls">
+                <span id="auth-user-name"></span>
+                <div id="clerk-user-button"></div>
+                <button id="btn-sign-out" type="button">Cerrar sesión</button>
+            </div>
         </header>
 
         <main>
@@ -44,12 +52,29 @@
 
                 <hr>
 
-                <h3>Foto Drone</h3>
+                <section id="panel-satelital" aria-labelledby="titulo-satelital">
+                    <h3 id="titulo-satelital">Identificación satelital</h3>
+                    <input type="file" id="input-kmz" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml" multiple hidden>
+                    <button id="btn-subir-kmz" class="tool-btn" type="button" aria-expanded="false" aria-controls="opciones-importar">🛰️ Importar polígono</button>
+                    <div id="opciones-importar" class="import-options" hidden>
+                        <button id="btn-importar-kmz" type="button">KMZ / KML</button>
+                        <button id="btn-importar-raster" type="button">Ráster / PDF con coordenadas</button>
+                    </div>
+                    <input type="file" id="input-raster" accept=".tif,.tiff,.png,.jpg,.jpeg,.pdf" hidden>
+                    <p class="satellite-hint">Importá polígonos KMZ/KML (25 MB) o imágenes GeoTIFF, PNG/JPG y PDF (50 MB). Las imágenes se superponen como referencia, sin convertirlas en polígonos.</p>
+                    <div id="estado-kmz" role="status" aria-live="polite">Esperando una capa satelital.</div>
+                    <ul id="lista-capas-satelitales" aria-label="Capas satelitales"></ul>
+                    <div id="detalle-satelital" class="hidden"></div>
+                </section>
+
+                <hr>
+
+                <h3>Fotos de campo / drone</h3>
                 <input type="file" id="input-drone" accept="image/*" style="display: none;">
-                <button id="btn-subir-foto" class="tool-btn tool-btn-warn">🛩️ Subir Foto de Drone</button>
+                <button id="btn-subir-foto" class="tool-btn tool-btn-warn">📷 Subir foto de campo / drone</button>
                 <p style="margin: 8px 0 0; font-size: 0.75em; color: #aaa; line-height: 1.35;">
-                    Ideal: archivo <strong>DJI_xxxx.JPG</strong> copiado de la tarjeta SD (sin reenviar por WhatsApp ni
-                    convertir a PNG). Ahí suele venir el XMP del gimbal.
+                    Usá la foto original con <strong>GPS</strong>, sin reenviar por WhatsApp. Para drones, el archivo
+                    <strong>DJI_xxxx.JPG</strong> de la tarjeta SD también suele conservar la orientación de la cámara.
                 </p>
                 <div id="estado-importacion"
                     style="margin-top: 8px; font-size: 0.8em; padding: 6px 8px; border-radius: 5px; background: #2c3e50; color: #ecf0f1;">
@@ -189,24 +214,61 @@
         </main>
     </div>
 
+    <dialog id="raster-dialog" aria-labelledby="raster-title">
+        <form id="raster-form">
+            <h2 id="raster-title">Importar ráster / PDF</h2>
+            <p id="raster-file-name"></p>
+            <p id="raster-status" role="status" aria-live="polite"></p>
+            <fieldset id="raster-page-controls" hidden>
+                <label for="raster-page">Página del PDF</label>
+                <input id="raster-page" type="number" min="1" value="1" step="1">
+                <button id="raster-render-page" type="button">Ver página</button>
+            </fieldset>
+            <div id="raster-preview-wrap" hidden><img id="raster-preview" alt="Vista previa de la capa a importar"><div id="raster-crop-frame"></div></div>
+            <fieldset id="raster-manual" hidden>
+                <legend>Ubicación del mapa</legend>
+                <p>Recortá los márgenes y las leyendas. Ingresá los límites del mapa recortado, con el norte arriba. Las coordenadas impresas no se leen automáticamente; un punto GPS de la cámara no alcanza para ubicar toda la imagen.</p>
+                <label for="raster-epsg">Sistema de coordenadas (código EPSG)</label>
+                <input id="raster-epsg" type="number" value="4326" step="1">
+                <p class="satellite-hint">4326: longitud/latitud en grados decimales. 3857: Web Mercator en metros. 32601–32660 / 32701–32760: UTM WGS84 norte / sur en metros (por ejemplo, 32720: zona 20 sur).</p>
+                <div class="raster-grid">
+                    <label>Oeste / X mínimo<input id="raster-west" type="number" step="any"></label>
+                    <label>Este / X máximo<input id="raster-east" type="number" step="any"></label>
+                    <label>Sur / Y mínimo<input id="raster-south" type="number" step="any"></label>
+                    <label>Norte / Y máximo<input id="raster-north" type="number" step="any"></label>
+                </div>
+                <details>
+                    <summary>Recortar márgenes (% desde cada borde)</summary>
+                    <div class="raster-grid">
+                        <label>Izquierdo<input id="raster-crop-left" type="number" min="0" max="99" step="0.1" value="0"></label>
+                        <label>Derecho<input id="raster-crop-right" type="number" min="0" max="99" step="0.1" value="0"></label>
+                        <label>Superior<input id="raster-crop-top" type="number" min="0" max="99" step="0.1" value="0"></label>
+                        <label>Inferior<input id="raster-crop-bottom" type="number" min="0" max="99" step="0.1" value="0"></label>
+                    </div>
+                </details>
+                <label class="raster-confirm"><input id="raster-north-up" type="checkbox"> Confirmo que el recorte tiene el norte arriba y que estos límites corresponden a sus bordes.</label>
+            </fieldset>
+            <p id="raster-location"></p>
+            <div class="raster-dialog-actions">
+                <button id="raster-cancel" type="button">Cancelar</button>
+                <button id="raster-submit" type="submit" disabled>Agregar al mapa</button>
+            </div>
+        </form>
+    </dialog>
     <div id="install-toast" class="install-toast">
-        <span>Instalar GeoVision para uso offline</span>
+        <span>Instalar GeoVision en este dispositivo</span>
         <button id="btn-install-toast" type="button">Instalar</button>
     </div>
-    <script src="js/geometria.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet-geometryutil@0.10.3/src/leaflet.geometryutil.min.js"></script>
-    <script src="js/script.js"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            // Registramos desde la raíz
-            navigator.serviceWorker.register('./sw.js')
-                .then(() => console.log("✅ LOOP: Service Worker registrado"))
-                .catch(err => console.log("❌ LOOP: Error al registrar", err));
-        }
-    </script>
+    <script src="js/geometria.js"></script>
+    <script src="js/kmz.js"></script>
+    <script src="js/raster.js"></script>
+    <script src="js/raster-import.js"></script>
+    <script src="js/satellite-layers.js"></script>
+    <script src="js/auth.js"></script>
 </body>
 
 </html>

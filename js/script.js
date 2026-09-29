@@ -11,6 +11,8 @@ let historialMediciones = [];
 let historialPoligonos = [];
 let historialPuntos = [];
 let historialFotos = [];
+let fotoSeleccionadaId = null;
+let gestorCapasSatelitales = null;
 let historialObjetivos = [];
 const urlsTemporalesFotos = new Set();
 let capaOrientacionFoto = null;
@@ -21,14 +23,15 @@ let estaHidratando = false;
 let ultimoHtmlCoords = "<strong>Mi Ubicacion:</strong><br>Esperando señal GPS...";
 let ultimoHtmlClimaLocal = "";
 
-const WEATHER_API_KEY = window.WEATHER_API_KEY || "ee2057b73b750d1fae6127e3ce2d091d";
-const STORAGE_KEY = "geovision_data";
-const IDB_NAME = "geovision_db";
-const IDB_VERSION = 1;
+if (!window.geoAuth?.userId) throw new Error("Se requiere una sesión validada.");
+const STORAGE_KEY = `geovision_data:${window.geoAuth.userId}`;
+const IDB_NAME = `geovision_db:${window.geoAuth.userId}`;
+const IDB_VERSION = 2;
+const IDB_STORE_SATELLITE = "satellite_layers";
 const IDB_STORE_FOTOS = "foto_previews";
 const IDB_STORE_APP_STATE = "app_state";
 const PITCH_GIMBAL_DEFAULT = 25;
-const URL_GATEWAY_DJI_FARM = "https://gateway-dji-farm-498689304873.southamerica-east1.run.app";
+const URL_GATEWAY_DJI_FARM = "/api/dji/mission";
 const HEADER_MISSION_NAME = "X-Mission-Name";
 const HEADER_MISSION_DATE = "X-Mission-Date";
 
@@ -60,11 +63,21 @@ function getIdb() {
             if (!db.objectStoreNames.contains(IDB_STORE_APP_STATE)) {
                 db.createObjectStore(IDB_STORE_APP_STATE);
             }
+            if (!db.objectStoreNames.contains(IDB_STORE_SATELLITE)) {
+                db.createObjectStore(IDB_STORE_SATELLITE, { keyPath: "id" });
+            }
         };
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+            req.result.onversionchange = () => { req.result.close(); idbPromise = null; };
+            resolve(req.result);
+        };
         req.onerror = () => {
             console.warn("IndexedDB no disponible:", req.error);
             resolve(null);
+        };
+        req.onblocked = () => {
+            const estado = document.getElementById("estado-kmz");
+            if (estado) estado.textContent = "Cerrá las otras pestañas de GeoVision para actualizar el almacenamiento y cargar las capas.";
         };
     });
 
@@ -81,6 +94,38 @@ async function idbSetFotoPreview(id, previewDataUrl) {
         tx.onerror = () => resolve(false);
     });
 }
+
+const satelliteStore = {
+    async list() {
+        const db = await getIdb();
+        if (!db) throw new Error("Almacenamiento no disponible");
+        return new Promise((resolve, reject) => {
+            const req = db.transaction(IDB_STORE_SATELLITE, "readonly").objectStore(IDB_STORE_SATELLITE).getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+    },
+    async put(data) {
+        const db = await getIdb();
+        if (!db) return false;
+        return new Promise((resolve) => {
+            const tx = db.transaction(IDB_STORE_SATELLITE, "readwrite");
+            tx.objectStore(IDB_STORE_SATELLITE).put(data);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = tx.onabort = () => resolve(false);
+        });
+    },
+    async remove(id) {
+        const db = await getIdb();
+        if (!db) return false;
+        return new Promise((resolve) => {
+            const tx = db.transaction(IDB_STORE_SATELLITE, "readwrite");
+            tx.objectStore(IDB_STORE_SATELLITE).delete(id);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = tx.onabort = () => resolve(false);
+        });
+    }
+};
 
 async function idbGetFotoPreview(id) {
     const db = await getIdb();
@@ -677,14 +722,14 @@ function construirPopupFotoHtml(foto, fotoURL) {
     const imagenSegura = imagenPopup ? escapeAttr(imagenPopup) : null;
     return imagenPopup
         ? `<div style="text-align:center; min-width: 300px;">
-                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
+                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Foto de campo</h3>
                 <a href="${imagenSegura}" target="_blank" rel="noopener">
                     <img src="${imagenSegura}" alt="${nombreSeguro}" style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); cursor: zoom-in;">
                 </a>
                 <p style="font-size: 11px; color: #bdc3c7; margin-top: 8px;">Pulsa para ver imagen completa</p>
             </div>`
         : `<div style="text-align:center; min-width: 300px;">
-                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Captura de Vuelo</h3>
+                <h3 style="margin: 0 0 10px 0; color: #3498db; font-size: 16px;">Foto de campo</h3>
                 <div style="width:100%; min-height:170px; border-radius:10px; border:1px dashed #4b5563; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:#1f2937; color:#9ca3af;">
                     <div style="font-size:30px; line-height:1;">🖼️</div>
                     <div style="font-size:12px; padding:0 12px;">Foto sin miniatura guardada.</div>
@@ -697,6 +742,8 @@ function construirPopupFotoHtml(foto, fotoURL) {
 
 function seleccionarFotoParaCalculo(foto, enfocarMapa = true) {
     if (!foto) return;
+    fotoSeleccionadaId = foto.id;
+    gestorCapasSatelitales?.refreshPhotos();
     ultimasCoordsReales = { lat: foto.lat, lon: foto.lon };
     ultimaTelemetriaFoto = {
         zoom: Number.isFinite(foto.zoom) && foto.zoom > 0 ? foto.zoom : 1,
@@ -884,6 +931,7 @@ function borrarFotoPorId(id) {
     }
     idbDeleteFotoPreview(id);
     historialFotos.splice(index, 1);
+    if (fotoSeleccionadaId === id) fotoSeleccionadaId = null;
     if (historialFotos.length > 0) {
         ultimasCoordsReales = { lat: historialFotos[0].lat, lon: historialFotos[0].lon };
     } else {
@@ -895,6 +943,7 @@ function borrarFotoPorId(id) {
 }
 
 function actualizarListaFotos() {
+    gestorCapasSatelitales?.refreshPhotos();
     const ui = document.getElementById("lista-fotos");
     if (!ui) return;
     ui.innerHTML = "";
@@ -977,6 +1026,7 @@ function limpiarFotos() {
         if (foto.marcador) map.removeLayer(foto.marcador);
     });
     historialFotos = [];
+    fotoSeleccionadaId = null;
     ultimasCoordsReales = null;
     limpiarCapaOrientacionFoto();
     urlsTemporalesFotos.forEach((url) => URL.revokeObjectURL(url));
@@ -1150,6 +1200,8 @@ function bindFotoDrone() {
                 fotoURL
             );
             if (fotoPreviewURL) await idbSetFotoPreview(foto.id, fotoPreviewURL);
+            fotoSeleccionadaId = foto.id;
+            gestorCapasSatelitales?.refreshPhotos();
             const imgPreview = document.getElementById("img-preview");
             if (imgPreview) {
                 imgPreview.src = fotoURL;
@@ -1310,7 +1362,7 @@ function bindClima() {
         if (infoDiv) infoDiv.innerText = "Obteniendo clima local...";
         navigator.geolocation.getCurrentPosition(async (p) => {
             try {
-                const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${p.coords.latitude}&lon=${p.coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
+                const resp = await window.geoAuth.fetch(`/api/weather?lat=${p.coords.latitude}&lon=${p.coords.longitude}`);
                 const data = await resp.json();
                 if (!resp.ok || (data && Number(data.cod) >= 400)) {
                     throw new Error(data && data.message ? data.message : "Error de servicio");
@@ -1334,7 +1386,7 @@ function bindClima() {
         const infoDiv = document.getElementById("info-clima");
         infoDiv.innerText = "Consultando clima del vuelo...";
         try {
-            const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${ultimasCoordsReales.lat}&lon=${ultimasCoordsReales.lon}&appid=${WEATHER_API_KEY}&units=metric&lang=es`);
+            const resp = await window.geoAuth.fetch(`/api/weather?lat=${ultimasCoordsReales.lat}&lon=${ultimasCoordsReales.lon}`);
             const data = await resp.json();
             if (!resp.ok || (data && Number(data.cod) >= 400)) {
                 throw new Error(data && data.message ? data.message : "Error de servicio");
@@ -1857,8 +1909,9 @@ window.borrarObjetivo = (id) => {
     guardarEnLocal();
 };
 
-window.borrarTodoElMapa = () => {
-    if (!confirm("¿Estas seguro de borrar mediciones, poligonos, puntos y fotos del mapa?")) return;
+window.borrarTodoElMapa = async () => {
+    if (!confirm("¿Borrar mediciones, polígonos, puntos, fotos y capas satelitales con sus revisiones del mapa?")) return;
+    if (gestorCapasSatelitales && !await gestorCapasSatelitales.clear()) return;
     historialMediciones.forEach((m) => {
         map.removeLayer(m.linea);
         (m.marcadores || []).forEach((v) => map.removeLayer(v));
@@ -2328,7 +2381,7 @@ async function enviarMisionADron(kmzBlob, metadataMision) {
     console.log("Despachando mision desde GeoVision...");
 
     try {
-        const response = await fetch(URL_GATEWAY_DJI_FARM, {
+        const response = await window.geoAuth.fetch(URL_GATEWAY_DJI_FARM, {
             method: "POST",
             headers: {
                 "Content-Type": "application/vnd.google-earth.kmz",
@@ -2351,7 +2404,7 @@ async function enviarMisionADron(kmzBlob, metadataMision) {
         }
 
         if (resultado.success) {
-            alert("🚀 Mision enviada al dron con exito!");
+            alert("Misión recibida por el servicio DJI. Verificá su estado en la plataforma DJI.");
             console.log("Mision:", metadataMision);
             console.log("Respuesta DJI:", resultado);
             return;
@@ -2361,7 +2414,7 @@ async function enviarMisionADron(kmzBlob, metadataMision) {
         console.log("Respuesta DJI:", resultado);
     } catch (error) {
         console.error("Falla en el despacho:", error);
-        alert("❌ Error al conectar con el Gateway de San Pablo");
+        alert(`No se pudo enviar la misión: ${error.message || "error de conexión"}`);
     }
 }
 
@@ -2609,7 +2662,7 @@ async function cargarDesdeLocal() {
 // =========================================================
 // 8. INICIALIZACION
 // =========================================================
-window.onload = function onLoad() {
+window.initializeGeoVision = function initializeGeoVision() {
     solicitarAlmacenamientoPersistente();
     refrescarTamanoMapa();
     requestAnimationFrame(refrescarTamanoMapa);
@@ -2655,25 +2708,12 @@ window.onload = function onLoad() {
     bindClima();
     bindHerramientas();
     initMobileBottomSheet();
+    gestorCapasSatelitales = GeoVisionSatellite.create({
+        map,
+        store: satelliteStore,
+        getPhotos: () => historialFotos,
+        getSelectedPhoto: () => historialFotos.find(foto => foto.id === fotoSeleccionadaId) || null,
+        selectPhoto: seleccionarFotoParaCalculo
+    });
     cargarDesdeLocal();
-    initWelcomeScreen();
 };
-
-function initWelcomeScreen() {
-    const welcomeStart = document.getElementById("btn-welcome-start");
-    const welcomeScreen = document.getElementById("welcome-screen");
-    if (!welcomeScreen || !welcomeStart) return;
-
-    const close = () => {
-        if (!welcomeScreen || welcomeScreen.classList.contains("hidden")) return;
-        welcomeScreen.classList.add("hidden");
-        setTimeout(() => {
-            if (welcomeScreen.parentNode) {
-                welcomeScreen.parentNode.removeChild(welcomeScreen);
-            }
-        }, 500);
-    };
-
-    welcomeStart.addEventListener("click", close);
-    setTimeout(close, 2800);
-}

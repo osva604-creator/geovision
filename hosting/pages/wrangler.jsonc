@@ -1,0 +1,9 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "geovision",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-09-17",
+  "services": [
+    { "binding": "GEOVISION", "service": "geovision" }
+  ]
+}

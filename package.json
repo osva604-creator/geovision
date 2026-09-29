@@ -1,0 +1,32 @@
+{
+  "name": "geovision",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "check:deploy": "npm run build && wrangler deploy --dry-run",
+    "build:pages": "node scripts/build-pages.mjs",
+    "deploy:pages": "npm run build:pages && wrangler pages deploy --cwd hosting/pages --branch main",
+    "test": "node --test test/*.test.mjs",
+    "test:kmz:browser": "node scripts/test-satellite-browser.mjs",
+    "test:raster:browser": "node scripts/test-raster-browser.mjs"
+  },
+  "dependencies": {
+    "@clerk/backend": "3.18.1"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "geotiff": "3.0.5",
+    "jszip": "3.10.1",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.3.289",
+    "playwright": "1.63.0",
+    "proj4": "2.22.0",
+    "wrangler": "4.134.0"
+  }
+}

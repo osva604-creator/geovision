@@ -1,16 +1,18 @@
-const CACHE_NAME = "geovision-v5";
+const CACHE_NAME = "geovision-public-v9";
 const APP_SHELL = [
     "./",
     "./index.html",
     "./css/style.css",
     "./js/script.js",
+    "./js/auth.js",
     "./js/geometria.js",
-    "./manifest.json",
-    "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
-    "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
-    "https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js",
-    "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js",
-    "https://cdn.jsdelivr.net/npm/leaflet-geometryutil@0.10.3/src/leaflet.geometryutil.min.js"
+    "./js/kmz.js",
+    "./js/raster.js",
+    "./js/raster-import.js",
+    "./js/raster-worker.js",
+    "./js/geopdf.js",
+    "./js/satellite-layers.js",
+    "./manifest.json"
 ];
 
 self.addEventListener("install", (event) => {
@@ -22,40 +24,25 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
     event.waitUntil(
-        caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+        caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("geovision-") && key !== CACHE_NAME).map((key) => caches.delete(key))))
     );
     self.clients.claim();
 });
 
-function esRecursoMapa(url) {
-    return url.includes(".google.com/vt/") || url.includes("tile.openstreetmap.org");
-}
-
 self.addEventListener("fetch", (event) => {
     if (event.request.method !== "GET") return;
-
-    const requestURL = event.request.url;
-    if (esRecursoMapa(requestURL)) {
-        event.respondWith(
-            caches.match(event.request).then((cached) => {
-                const networkPromise = fetch(event.request)
-                    .then((response) => {
-                        const copy = response.clone();
-                        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-                        return response;
-                    })
-                    .catch(() => cached || Response.error());
-                return cached || networkPromise;
-            })
-        );
-        return;
-    }
+    const url = new URL(event.request.url);
+    // Nunca interceptar API, tokens, Clerk ni recursos de terceros.
+    if (event.request.headers.has("Authorization") || url.origin !== self.location.origin || url.search ||
+        !APP_SHELL.some(path => new URL(path, self.location.href).pathname === url.pathname)) return;
 
     event.respondWith(
         fetch(event.request)
             .then((response) => {
-                const copy = response.clone();
-                caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+                if (response.ok && !response.headers.get("Cache-Control")?.includes("no-store")) {
+                    const copy = response.clone();
+                    event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)));
+                }
                 return response;
             })
             .catch(() =>

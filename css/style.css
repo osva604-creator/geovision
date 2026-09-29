@@ -38,6 +38,10 @@ body {
 }
 
 header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 12px 20px;
     background-color: rgba(5, 14, 24, 0.90);
     padding: 16px 26px;
     text-align: center;
@@ -48,6 +52,7 @@ header {
 }
 
 header h1 {
+    grid-column: 2;
     margin: 0;
     font-size: 1.45rem;
     letter-spacing: 0.08em;
@@ -103,12 +108,13 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: 24px clamp(24px, 5vw, 80px);
+    box-sizing: border-box;
     background-image: var(--welcome-bg-image), radial-gradient(circle at top left, rgba(79, 153, 90, 0.20), transparent 50%), linear-gradient(180deg, rgba(4, 9, 19, 0.88), rgba(4, 9, 19, 0.98));
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
-    overflow: hidden;
+    overflow-y: auto;
 }
 
 #welcome-screen::before {
@@ -121,8 +127,10 @@ main {
 
 .welcome-card {
     position: relative;
-    width: min(620px, 100%);
-    padding: 34px 30px;
+    box-sizing: border-box;
+    width: min(440px, 100%);
+    flex-shrink: 0;
+    padding: 28px 26px;
     background: rgba(4, 12, 24, 0.72);
     border: 1px solid rgba(31, 91, 40, 0.14);
     border-radius: 28px;
@@ -131,25 +139,125 @@ main {
     text-align: center;
 }
 
+.welcome-card h1 {
+    margin: 0 0 14px;
+    font-size: 1.85rem;
+}
+
 .welcome-card p {
-    margin: 20px 0 30px;
+    margin: 14px 0 22px;
     color: rgba(232, 245, 255, 0.82);
-    line-height: 1.7;
-    font-size: 1.08rem;
+    line-height: 1.55;
+    font-size: 1rem;
     text-align: center;
 }
 
 .welcome-card button {
     width: auto;
-    padding: 16px 30px;
-    font-size: 1.04rem;
+    padding: 13px 26px;
+    font-size: 1rem;
     letter-spacing: 0.04em;
-    background: linear-gradient(135deg, #a5f62f, #6ac91f);
+    background: linear-gradient(135deg, rgba(165, 246, 47, 0.82), rgba(106, 201, 31, 0.72));
     color: #07120f;
     border-radius: 999px;
-    box-shadow: 0 20px 40px rgba(106, 201, 31, 0.25);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 10px 28px rgba(106, 201, 31, 0.18);
     display: block;
     margin: 0 auto;
+}
+
+#panel-satelital { min-width: 0; }
+.import-options { display: grid; gap: 8px; padding: 10px 0; }
+.import-options[hidden], #raster-dialog [hidden] { display: none; }
+#raster-dialog { box-sizing: border-box; width: min(680px, calc(100% - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 24px; border: 1px solid #667085; border-radius: 20px; background: #0c1c2e; color: var(--text-main); }
+#raster-dialog::backdrop { background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(4px); }
+#raster-dialog h2 { margin-top: 0; }
+#raster-dialog p { font-size: 0.9rem; overflow-wrap: anywhere; }
+#raster-dialog fieldset { min-width: 0; border: 1px solid #667085; border-radius: 10px; margin: 14px 0; }
+#raster-dialog input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; margin: 5px 0 10px; border-radius: 6px; border: 1px solid #667085; background: #142335; color: var(--text-main); font: inherit; }
+.raster-grid, .raster-dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.raster-grid label, .raster-confirm { font-size: 0.85rem; }
+.raster-confirm { display: block; margin-top: 16px; }
+#raster-preview-wrap { position: relative; width: fit-content; max-width: 100%; margin: 0 auto; line-height: 0; }
+#raster-preview { display: block; max-width: 100%; max-height: 300px; object-fit: contain; }
+#raster-crop-frame { position: absolute; inset: 0; border: 2px solid #a5f62f; box-sizing: border-box; pointer-events: none; }
+#raster-status { min-height: 1.5em; }
+#raster-status.import-error { color: #fca5a5; }
+#raster-dialog button:disabled { opacity: 0.5; cursor: not-allowed; }
+#panel-satelital .satellite-hint { font-size: 0.85rem !important; color: var(--text-muted); }
+#btn-subir-kmz { background: rgba(109, 40, 217, 0.76); }
+#estado-kmz { font-size: 0.85rem; white-space: pre-line; overflow-wrap: anywhere; margin: 8px 0; }
+#estado-kmz.satellite-error { color: #fca5a5; }
+#lista-capas-satelitales { list-style: none; padding: 0; margin: 0; }
+.satellite-layer, #detalle-satelital { margin: 12px 0; padding: 12px; background: var(--bg-card); border: 1px solid #6b4a96; border-radius: 10px; }
+.satellite-layer-title { display: flex; gap: 8px; align-items: flex-start; overflow-wrap: anywhere; }
+.satellite-layer-title input { width: auto; margin-top: 5px; flex: 0 0 auto; }
+.satellite-layer > small { display: block; margin: 6px 0; }
+.satellite-actions, .satellite-photo-row { display: flex; gap: 6px; align-items: center; margin: 8px 0; }
+#panel-satelital button { padding: 8px 10px; font-size: 0.82rem; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.satellite-actions button { flex: 1; }
+#panel-satelital select, #panel-satelital textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px; color: var(--text-main); background: #142335; border: 1px solid #667085; border-radius: 6px; margin-top: 6px; font: inherit; }
+#panel-satelital label { font-size: 0.85rem; }
+.satellite-opacity { display: block; margin: 8px 0; }
+.satellite-opacity input { width: 100%; accent-color: #c084fc; }
+#detalle-satelital > label { display: block; margin: 12px 0; }
+#detalle-satelital h4 { overflow-wrap: anywhere; }
+.satellite-description { white-space: pre-wrap; max-height: 160px; overflow: auto; overflow-wrap: anywhere; }
+#detalle-satelital dl { font-size: 0.8rem; max-height: 180px; overflow: auto; overflow-wrap: anywhere; }
+#detalle-satelital dt { font-weight: bold; color: #d8b4fe; }
+#detalle-satelital dd { margin: 0 0 6px; }
+.satellite-photo-row > :first-child { flex: 1; }
+.satellite-photo-row > :last-child { width: auto; flex: 0 0 auto; }
+.satellite-layer details { font-size: 0.8rem; margin-top: 10px; overflow-wrap: anywhere; }
+.satellite-layer details ul { padding-left: 16px; max-height: 180px; overflow: auto; }
+#panel-satelital button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.welcome-card button:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+
+#auth-notice {
+    font-size: 0.9rem;
+    margin: 12px 0;
+}
+
+#btn-auth-retry {
+    margin-top: 12px;
+}
+
+.account-controls {
+    grid-column: 3;
+    justify-self: end;
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+#auth-user-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#clerk-user-button {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+}
+
+.account-controls button:where(:not([class*="cl-"])) {
+    flex: 0 0 auto;
+    width: auto;
+    padding: 6px 12px;
+    margin: 0;
+    font-size: 0.85rem;
+    white-space: nowrap;
 }
 
 #welcome-screen.hidden {
@@ -178,12 +286,14 @@ main {
     line-height: 1.5;
 }
 
-button {
+button:where(:not([class*="cl-"])) {
+    position: relative;
+    box-sizing: border-box;
     width: 100%;
     padding: 12px 14px;
-    background: linear-gradient(135deg, rgba(27, 84, 42, 0.95), rgba(38, 118, 52, 0.95));
+    background: linear-gradient(135deg, rgba(27, 84, 42, 0.76), rgba(38, 118, 52, 0.68));
     color: var(--text-main);
-    border: none;
+    border: 1px solid rgba(222, 255, 232, 0.16);
     border-radius: 16px;
     cursor: pointer;
     margin-bottom: 10px;
@@ -193,18 +303,20 @@ button {
     line-height: 1.2;
     letter-spacing: 0.01em;
     text-transform: uppercase;
-    box-shadow: 0 16px 40px rgba(3, 11, 19, 0.22);
+    -webkit-backdrop-filter: blur(8px) saturate(115%);
+    backdrop-filter: blur(8px) saturate(115%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 8px 24px rgba(3, 11, 19, 0.18);
     transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-button:focus-visible {
+button:where(:not([class*="cl-"])):focus-visible {
     outline: 2px solid rgba(110, 227, 98, 0.55);
     outline-offset: 3px;
 }
 
-button:hover {
+button:where(:not([class*="cl-"])):hover:enabled {
     transform: translateY(-1px);
-    background: linear-gradient(135deg, rgba(110, 227, 98, 0.98), rgba(86, 214, 80, 0.98));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 28px rgba(3, 11, 19, 0.24);
 }
 
 button.tool-btn {
@@ -218,19 +330,19 @@ button.tool-btn {
 }
 
 .tool-btn-tool {
-    background: rgba(36, 92, 44, 0.95) !important;
+    background: rgba(36, 92, 44, 0.76) !important;
 }
 
 .tool-btn-warn {
-    background: rgba(233, 140, 44, 0.92) !important;
+    background: rgba(233, 140, 44, 0.76) !important;
 }
 
 .tool-btn-danger {
-    background: rgba(219, 62, 62, 0.92) !important;
+    background: rgba(219, 62, 62, 0.76) !important;
 }
 
 #btn-borrar-todo {
-    background: #dc2626 !important;
+    background: rgba(220, 38, 38, 0.80) !important;
     color: #ffffff !important;
     border: 1px solid rgba(255, 156, 143, 0.28);
     box-shadow: 0 14px 30px rgba(220, 38, 38, 0.24);
@@ -454,7 +566,40 @@ input[type="text"] {
    Optimizaciones para Celulares (Responsive)
    =========================================== */
 
+@media (max-width: 1000px) {
+    header {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    header h1, .account-controls {
+        grid-column: 1;
+    }
+}
+
 @media (max-width: 768px) {
+    header {
+        padding: 12px 16px;
+    }
+
+    .account-controls {
+        gap: 8px;
+    }
+
+    .account-controls #btn-sign-out {
+        padding: 8px 10px !important;
+        font-size: 0.85rem !important;
+        margin: 0;
+    }
+
+    #welcome-screen {
+        justify-content: center;
+        padding: 20px;
+    }
+
+    .welcome-card {
+        padding: 26px 22px;
+    }
+
     #app-container {
         height: 100dvh;
     }
@@ -491,6 +636,14 @@ input[type="text"] {
 
     #sidebar.mobile-open {
         transform: translateY(0%);
+        scroll-padding-bottom: 100px;
+    }
+
+    #panel-satelital button {
+        font-size: 0.85rem !important;
+        line-height: 1.35;
+        min-height: 40px;
+        padding: 8px !important;
     }
 
     #btn-mobile-controles {
@@ -526,7 +679,7 @@ input[type="text"] {
     }
 
     /* Agrandamos botones para que sean fáciles de tocar con el dedo */
-    button {
+    button:where(:not([class*="cl-"])) {
         padding: 15px !important;
         font-size: 1.12rem !important;
         margin-bottom: 10px;
@@ -568,18 +721,6 @@ input[type="text"] {
     font-size: 0.86rem;
     border-radius: 4px;
     padding: 2px 5px;
-}
-/* Efecto para los botones al pasar el mouse */
-button:hover {
-    filter: brightness(1.2); /* Aumenta un poco el brillo del color original */
-    transform: translateY(-2px); /* El botón sube 2 píxeles (da sensación de clic) */
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3); /* Agrega una sombrita para dar profundidad */
-    cursor: pointer; /* Asegura que el puntero cambie a la manito */
-}
-
-/* Para que el cambio de color sea suave y no de golpe */
-button {
-    transition: all 0.3s ease; /* Hace que el efecto dure 0.3 segundos */
 }
 /* Hacer que el globo del Pop-up sea oscuro como el panel */
 .leaflet-popup-content-wrapper, .leaflet-popup-tip {
