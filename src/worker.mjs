@@ -28,7 +28,7 @@ function secure(response, env) {
     "default-src 'self'",
     `script-src 'self' https://unpkg.com https://cdn.jsdelivr.net https://challenges.cloudflare.com ${clerk}`,
     "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
-    `img-src 'self' data: blob: https://*.google.com https://*.tile.openstreetmap.org https://cdn-icons-png.flaticon.com https://img.clerk.com ${clerk}`,
+    `img-src 'self' data: blob: https://*.google.com https://*.tile.openstreetmap.org https://img.clerk.com ${clerk}`,
     "font-src 'self' https://fonts.gstatic.com",
     `connect-src 'self' https://*.google.com https://*.tile.openstreetmap.org https://clerk-telemetry.com ${clerk}`,
     `frame-src https://challenges.cloudflare.com ${clerk}`,

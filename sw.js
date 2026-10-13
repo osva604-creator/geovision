@@ -1,4 +1,4 @@
-const CACHE_NAME = "geovision-public-v10";
+const CACHE_NAME = "geovision-public-v11";
 const APP_SHELL = [
     "./",
     "./index.html",
@@ -13,7 +13,14 @@ const APP_SHELL = [
     "./js/raster-worker.js",
     "./js/geopdf.js",
     "./js/satellite-layers.js",
-    "./manifest.json"
+    "./manifest.json",
+    "./assets/brand/logos/geovision-logo.png",
+    "./assets/brand/icons/geovision-icon-512.png",
+    "./assets/brand/icons/geovision-icon-maskable-512.png",
+    "./assets/brand/icons/geovision-icon-192.png",
+    "./assets/brand/icons/geovision-icon-48.png",
+    "./assets/brand/icons/favicon.png",
+    "./assets/brand/icons/apple-touch-icon.png"
 ];
 
 self.addEventListener("install", (event) => {

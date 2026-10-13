@@ -5,7 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GeoVision 2026</title>
-    <meta name="theme-color" content="#123524">
+    <meta name="theme-color" content="#152b3b">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/icons/favicon.png">
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/brand/icons/geovision-icon-48.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/brand/icons/apple-touch-icon.png">
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="css/style.css">
@@ -17,7 +20,7 @@
 <body>
     <div id="welcome-screen" class="welcome-screen">
         <div class="welcome-card">
-            <h1>GeoVision</h1>
+            <h1><img class="brand-logo brand-logo-welcome" src="assets/brand/logos/geovision-logo.png" alt="GeoVision" width="745" height="484" fetchpriority="high"></h1>
             <p>Ingresá con tu cuenta para abrir tus mapas.</p>
             <p id="auth-notice" role="status" aria-live="polite">Conectando con el servicio de acceso…</p>
             <button id="btn-welcome-start" type="button" disabled>Ingresar</button>
@@ -28,7 +31,7 @@
 
     <div id="app-container" class="hidden">
         <header>
-            <h1>GeoVision 2026</h1>
+            <h1><img class="brand-logo brand-logo-header" src="assets/brand/logos/geovision-logo.png" alt="GeoVision 2026" width="745" height="484"></h1>
             <div class="account-controls">
                 <span id="auth-user-name"></span>
                 <div id="clerk-user-button"></div>
@@ -46,7 +49,7 @@
                 <h2>Panel de Control</h2>
 
                 <button id="btn-localizar" class="tool-btn">📍 Mi Ubicación</button>
-                <button id="btn-clima-actual" style="background-color: #2980b9; width: 100%; margin-top: 5px;">🌦️ Clima
+                <button id="btn-clima-actual" style="background-color: var(--primary); width: 100%; margin-top: 5px;">🌦️ Clima
                     en mi posición</button>
                 <div id="info-coords"><strong>Mi Ubicacion:</strong><br>Esperando señal GPS...</div>
 
@@ -72,30 +75,30 @@
                 <h3>Fotos de campo / drone</h3>
                 <input type="file" id="input-drone" accept="image/*" style="display: none;">
                 <button id="btn-subir-foto" class="tool-btn tool-btn-warn">📷 Subir foto de campo / drone</button>
-                <p style="margin: 8px 0 0; font-size: 0.75em; color: #aaa; line-height: 1.35;">
+                <p style="margin: 8px 0 0; font-size: 0.75em; color: var(--text-muted); line-height: 1.35;">
                     Usá la foto original con <strong>GPS</strong>, sin reenviar por WhatsApp. Para drones, el archivo
                     <strong>DJI_xxxx.JPG</strong> de la tarjeta SD también suele conservar la orientación de la cámara.
                 </p>
                 <div id="estado-importacion"
-                    style="margin-top: 8px; font-size: 0.8em; padding: 6px 8px; border-radius: 5px; background: #2c3e50; color: #ecf0f1;">
+                    style="margin-top: 8px; font-size: 0.8em; padding: 6px 8px; border-radius: 5px; background: var(--bg-card); color: var(--text-main);">
                     Estado: esperando foto
                 </div>
-                <div id="panel-foto-drone" style="margin-top: 12px; padding: 10px; border-radius: 8px; background: #17202a;">
-                    <img id="img-preview" alt="Preview de foto de drone" style="display:none; width: 100%; border: 1px solid #374151; border-radius: 8px; margin-top: 8px;" />
+                <div id="panel-foto-drone" style="margin-top: 12px; padding: 10px; border-radius: 8px; background: var(--bg-card);">
+                    <img id="img-preview" alt="Preview de foto de drone" style="display:none; width: 100%; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px;" />
                 </div>
-                <div id="telemetria-drone" style="margin-top: 10px; font-size: 0.8em; color: #f1c40f;"></div>
+                <div id="telemetria-drone" style="margin-top: 10px; font-size: 0.8em; color: var(--warning);"></div>
 
                 <div style="margin-top: 10px;">
-                    <small style="color: #f1c40f; font-weight: bold;">Historial de fotos:</small>
+                    <small style="color: var(--warning); font-weight: bold;">Historial de fotos:</small>
                     <ul id="lista-fotos"
-                        style="list-style: none; padding: 0; margin-top:5px; max-height: 140px; overflow-y: auto; border: 1px solid #374151; border-radius: 6px;">
+                        style="list-style: none; padding: 0; margin-top:5px; max-height: 140px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px;">
                     </ul>
                 </div>
 
                 <button id="btn-clima"
-                    style="background-color: #34495e; width: 100%; margin-top: 5px; display: none;">🌦️ Ver Clima del
+                    style="background-color: var(--primary); width: 100%; margin-top: 5px; display: none;">🌦️ Ver Clima del
                     Vuelo</button>
-                <div id="info-clima" style="margin-top: 10px; font-size: 0.8em; color: #ecf0f1;"></div>
+                <div id="info-clima" style="margin-top: 10px; font-size: 0.8em; color: var(--text-main);"></div>
 
                 <hr>
 
@@ -103,20 +106,20 @@
                 <div id="panel-mira" style="background: #333; padding: 10px; border-radius: 5px; font-size: 0.8em;">
                     <p style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">Ángulo Gimbal (Pitch):
                         <input type="number" id="gimbal-pitch" value="45" min="0" max="90" step="0.1" style="width: 56px;"> °
-                        <label style="display:inline-flex; align-items:center; gap:3px; color:#bdc3c7;">
+                        <label style="display:inline-flex; align-items:center; gap:3px; color:var(--text-muted);">
                             <input type="checkbox" id="gimbal-pitch-manual"> Manual
                         </label>
-                        <small id="estado-camara-mira" style="color:#f1c40f;">Cámara: 25° · Estimado</small>
+                        <small id="estado-camara-mira" style="color:var(--warning);">Cámara: 25° · Estimado</small>
                     </p>
                     <p>Rumbo (Heading): <input type="number" id="drone-heading" value="0" style="width: 50px;"> °</p>
                     <p>Altitud sobre terreno/aprox.: <input type="number" id="manual-alt" value="100" style="width: 50px;"> mts</p>
                     <button id="btn-proyectar" class="tool-btn tool-btn-danger" style="width: 100%;">🎯 Calcular Punto
                         Objetivo</button>
-                    <div id="resultado-mira" style="margin-top:10px; color: #f1c40f;"></div>
+                    <div id="resultado-mira" style="margin-top:10px; color: var(--warning);"></div>
                     <div style="margin-top: 10px;">
-                        <small style="color:#f1c40f; font-weight:bold;">Objetivos buscados:</small>
+                        <small style="color:var(--warning); font-weight:bold;">Objetivos buscados:</small>
                         <ul id="lista-objetivos"
-                            style="list-style: none; padding: 0; margin-top:5px; max-height: 110px; overflow-y: auto; border:1px solid #374151; border-radius:6px;">
+                            style="list-style: none; padding: 0; margin-top:5px; max-height: 110px; overflow-y: auto; border:1px solid var(--border); border-radius:6px;">
                         </ul>
                     </div>
                 </div>
@@ -125,7 +128,7 @@
 
                 <div id="panel-medicion-total"
                     style="margin-top: 15px; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444;">
-                    <h4 style="margin-top: 0; color: #3498db;">📐 Herramientas de Medición</h4>
+                    <h4 style="margin-top: 0; color: var(--info);">📐 Herramientas de Medición</h4>
 
                     <div style="display: flex; gap: 5px;">
                         <button id="btn-regla" class="tool-btn tool-btn-tool" style="flex: 1; font-size: 0.9em;">📏 Nueva
@@ -139,52 +142,52 @@
                         Todo el Mapa</button>
 
                     <div style="margin-top: 15px;">
-                        <small style="color: #3498db; font-weight: bold;">Líneas (Distancias):</small>
+                        <small style="color: var(--info); font-weight: bold;">Líneas (Distancias):</small>
                         <ul id="lista-medidas"
                             style="list-style: none; padding: 0; margin-top:5px; max-height: 120px; overflow-y: auto;">
                         </ul>
                     </div>
 
                     <div style="margin-top: 15px;">
-                        <small style="color: #27ae60; font-weight: bold;">Polígonos (Áreas):</small>
+                        <small style="color: var(--success); font-weight: bold;">Polígonos (Áreas):</small>
                         <div style="display: flex; gap: 5px; margin-top: 6px;">
                             <button id="btn-poligonos-seleccionar-todos" class="tool-btn"
-                                style="flex: 1; background-color: #334155; font-size: 0.85em;">
+                                style="flex: 1; background-color: var(--bg-input); font-size: 0.85em;">
                                 Seleccionar todos
                             </button>
                             <button id="btn-poligonos-seleccionar-ninguno" class="tool-btn"
-                                style="flex: 1; background-color: #334155; font-size: 0.85em;">
+                                style="flex: 1; background-color: var(--bg-input); font-size: 0.85em;">
                                 Ninguno
                             </button>
                         </div>
                         <div style="margin-top: 6px;">
-                            <small style="color:#93c5fd; font-size:0.75em;">Manuales</small>
+                            <small style="color:var(--info); font-size:0.75em;">Manuales</small>
                             <ul id="lista-poligonos-manuales"
-                                style="list-style: none; padding: 0; margin-top:4px; max-height: 90px; overflow-y: auto; border:1px solid #374151; border-radius:6px;">
+                                style="list-style: none; padding: 0; margin-top:4px; max-height: 90px; overflow-y: auto; border:1px solid var(--border); border-radius:6px;">
                             </ul>
                         </div>
                         <div style="margin-top: 8px;">
-                            <small style="color:#86efac; font-size:0.75em;">Automáticos</small>
+                            <small style="color:var(--success); font-size:0.75em;">Automáticos</small>
                             <ul id="lista-poligonos-automaticos"
-                                style="list-style: none; padding: 0; margin-top:4px; max-height: 90px; overflow-y: auto; border:1px solid #374151; border-radius:6px;">
+                                style="list-style: none; padding: 0; margin-top:4px; max-height: 90px; overflow-y: auto; border:1px solid var(--border); border-radius:6px;">
                             </ul>
                         </div>
                         <div style="display: flex; gap: 5px; margin-top: 8px;">
                             <button id="btn-exportar-kml" class="tool-btn"
-                                style="flex: 1; background-color: #16a34a;">
+                                style="flex: 1; background-color: var(--primary);">
                                 ⬇️ Exportar KML/KMZ
                             </button>
                             <button id="btn-dji-farm" class="tool-btn"
-                                style="flex: 1; background-color: #16a34a;">
+                                style="flex: 1; background-color: var(--primary);">
                                 DJI FARM
                             </button>
                         </div>
                         <button id="btn-dji-test" class="tool-btn"
-                            style="width: 100%; margin-top: 6px; background-color: #0ea5e9;">
+                            style="width: 100%; margin-top: 6px; background-color: var(--primary);">
                             Probar conexión DJI
                         </button>
                         <button id="btn-poligono-auto" class="tool-btn"
-                            style="width: 100%; margin-top: 6px; background-color: #22c55e;">
+                            style="width: 100%; margin-top: 6px; background-color: var(--primary);">
                             Polígono Automatico
                         </button>
                         <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
@@ -205,7 +208,7 @@
 
                 <div id="panel-puntos"
                     style="margin-top: 15px; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444;">
-                    <h4 style="margin-top: 0; color: #27ae60;">📍 Puntos de Interés</h4>
+                    <h4 style="margin-top: 0; color: var(--success);">📍 Puntos de Interés</h4>
                     <button id="btn-modo-punto" class="tool-btn tool-btn-tool"
                         style="width: 100%; padding: 8px; margin-bottom: 10px;">
                         📍 Marcador Manual: Desactivado
@@ -261,6 +264,7 @@
         </form>
     </dialog>
     <div id="install-toast" class="install-toast">
+        <img class="brand-install-icon" src="assets/brand/icons/geovision-icon-48.png" alt="" width="48" height="48">
         <span>Instalar GeoVision en este dispositivo</span>
         <button id="btn-install-toast" type="button">Instalar</button>
     </div>

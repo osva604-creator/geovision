@@ -2,6 +2,8 @@
 
 Aplicación de mapas y fotos de drones con alojamiento en Cloudflare Workers, ingreso con Clerk y API protegida para clima y despacho DJI.
 
+La identidad visual local está en [`assets/brand`](assets/brand), con logos separados por uso, íconos de instalación y favicon. Ver [guía de marca y extracción](docs/brand/README.md) para la lámina original, tamaños y paleta.
+
 ## Estado de la integración
 
 **Dirección pública: https://geovision-886.pages.dev**, publicada el 17 de septiembre de 2026. Proyecto Pages: `geovision`; despliegue inicial de Pages: `78f56e12`. El servidor es el Worker independiente `geovision`, en la cuenta indicada en `wrangler.jsonc`.

@@ -223,13 +223,15 @@ requestAnimationFrame(() => {
 });
 
 const droneIcon = L.icon({
-    iconUrl: "https://cdn-icons-png.flaticon.com/512/252/252025.png",
+    iconUrl: "assets/brand/icons/geovision-icon-48.png",
+    className: "brand-map-icon",
     iconSize: [45, 45],
     iconAnchor: [22, 22]
 });
 
 const iconoMira = L.icon({
-    iconUrl: "https://cdn-icons-png.flaticon.com/512/252/252025.png",
+    iconUrl: "assets/brand/icons/geovision-icon-48.png",
+    className: "brand-map-icon",
     iconSize: [40, 40],
     iconAnchor: [20, 20]
 });
