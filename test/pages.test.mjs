@@ -27,3 +27,13 @@ test('Pages fails closed when its backend binding is missing', async () => {
   assert.equal(response.status, 503);
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
 });
+
+
+test('Pages reports unavailable when its backend service was removed', async () => {
+  const response = await pages.fetch(new Request('https://geovision.pages.dev/api/config'), {
+    GEOVISION: { fetch: async () => { throw new Error('Service unavailable'); } }
+  });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.ok(!(await response.text()).includes('Service unavailable'));
+});

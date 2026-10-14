@@ -9,8 +9,8 @@
   "display": "standalone",
   "orientation": "any",
   "categories": ["maps", "productivity", "utilities"],
-  "background_color": "#152b3b",
-  "theme_color": "#152b3b",
+  "background_color": "#166534",
+  "theme_color": "#166534",
   "icons": [
     {
       "src": "assets/brand/icons/geovision-icon-192.png",

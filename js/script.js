@@ -1604,7 +1604,7 @@ function renderClima(infoDiv, data, color) {
     const humedad = data.main.humidity;
     const desc = escapeHtml(data.weather[0].description);
     const colorSeguro = /^#[0-9a-f]{3,8}$/i.test(color) ? color : "#3498db";
-    const climaHtml = `<div style="background: #1c2833; padding: 10px; border-radius: 5px; border-left: 4px solid ${colorSeguro}; margin-top:5px;">
+    const climaHtml = `<div style="background: var(--bg-card); padding: 10px; border-radius: 5px; border-left: 4px solid ${colorSeguro}; margin-top:5px;">
         <span style="text-transform: capitalize; font-weight: bold; color:${colorSeguro};">${desc}</span><br>
         🌡️ <b>Temp:</b> ${temp.toFixed(1)}°C<br>
         💧 <b>Humedad:</b> ${humedad}%<br>
@@ -1634,11 +1634,11 @@ function bindClima() {
                 ultimoHtmlClimaLocal = renderClima(null, data, "#2980b9");
                 actualizarPanelUbicacion();
             } catch (e) {
-                ultimoHtmlClimaLocal = `<small style="color:#fca5a5;">Error al obtener clima local: ${escapeHtml(e.message || "sin detalle")}.</small>`;
+                ultimoHtmlClimaLocal = `<small style="color:var(--danger);">Error al obtener clima local: ${escapeHtml(e.message || "sin detalle")}.</small>`;
                 actualizarPanelUbicacion();
             }
         }, () => {
-            ultimoHtmlClimaLocal = "<small style=\"color:#fca5a5;\">No se pudo obtener GPS local.</small>";
+            ultimoHtmlClimaLocal = "<small style=\"color:var(--danger);\">No se pudo obtener GPS local.</small>";
             actualizarPanelUbicacion();
         });
     };
