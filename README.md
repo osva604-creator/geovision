@@ -1,5 +1,15 @@
 # GeoVision
 
+## Recovery status - 2026-10-14
+
+Production returned HTTP 500 / Cloudflare 1101 because the `geovision` Worker referenced by Pages no longer existed. Restored the Worker from this repository and redeployed Pages to renew the service binding. The public page now returns HTTP 200.
+
+**Login remains blocked:** the restored Worker has no secrets. Restore `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` from the original GeoVision Clerk instance in Cloudflare > Workers & Pages > geovision > Settings > Variables and Secrets. Keep the same Clerk instance: local records are scoped to the original user IDs. Then verify `/api/config` returns 200 and test a real login. Restore weather/DJI credentials separately if needed.
+
+The visual update follows MyCAMPO_D's light palette, white panels, green controls and typography. GeoVision keeps its branding with a compact header, 340 px desktop sidebar, flexible map and mobile bottom panel. Public cache version: v12.
+
+Validation: 36 automated tests, build, and browser suites for KMZ/KML and raster/GeoPDF with simulated sessions on desktop/mobile. Real login awaits Clerk configuration. Pages now handles a removed backend with a controlled 503 response.
+
 Aplicación de mapas y fotos de drones con alojamiento en Cloudflare Workers, ingreso con Clerk y API protegida para clima y despacho DJI.
 
 La identidad visual local está en [`assets/brand`](assets/brand), con logos separados por uso, íconos de instalación y favicon. Ver [guía de marca y extracción](docs/brand/README.md) para la lámina original, tamaños y paleta.
