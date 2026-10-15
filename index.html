@@ -5,10 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GeoVision 2026</title>
-    <meta name="theme-color" content="#152b3b">
-    <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/icons/favicon.png">
-    <link rel="icon" type="image/png" sizes="48x48" href="assets/brand/icons/geovision-icon-48.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="assets/brand/icons/apple-touch-icon.png">
+    <meta name="theme-color" content="#0b1220">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/branding/favicon.png">
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/branding/geovision-icon-48.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/branding/apple-touch-icon.png">
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="css/style.css">
@@ -20,7 +20,7 @@
 <body>
     <div id="welcome-screen" class="welcome-screen">
         <div class="welcome-card">
-            <h1><img class="brand-logo brand-logo-welcome" src="assets/brand/logos/geovision-logo.png" alt="GeoVision" width="745" height="484" fetchpriority="high"></h1>
+            <h1><img class="brand-logo brand-logo-welcome" src="assets/branding/geovision-logo.png" alt="GeoVision" width="745" height="484" fetchpriority="high"></h1>
             <p>Ingresá con tu cuenta para abrir tus mapas.</p>
             <p id="auth-notice" role="status" aria-live="polite">Conectando con el servicio de acceso…</p>
             <button id="btn-welcome-start" type="button" disabled>Ingresar</button>
@@ -31,7 +31,7 @@
 
     <div id="app-container" class="hidden">
         <header>
-            <h1><img class="brand-logo brand-logo-header" src="assets/brand/logos/geovision-logo.png" alt="GeoVision 2026" width="745" height="484"></h1>
+            <h1><img class="brand-logo brand-logo-header" src="assets/branding/geovision-logo.png" alt="GeoVision 2026" width="745" height="484"></h1>
             <div class="account-controls">
                 <span id="auth-user-name"></span>
                 <div id="clerk-user-button"></div>
@@ -40,10 +40,18 @@
         </header>
 
         <main>
+            <nav class="workspace-nav" aria-label="Herramientas del mapa">
+                <a href="#info-coords" title="Ubicación"><span aria-hidden="true">&#8982;</span><span>Ubicación</span></a>
+                <a href="#panel-satelital" title="Capas satelitales"><span aria-hidden="true">&#9649;</span><span>Capas</span></a>
+                <a href="#titulo-fotos" title="Fotos de campo"><span aria-hidden="true">&#9635;</span><span>Fotos</span></a>
+                <a href="#titulo-mira" title="Calculador de objetivo"><span aria-hidden="true">&#8853;</span><span>Mira</span></a>
+                <a href="#panel-medicion-total" title="Mediciones y polígonos"><span aria-hidden="true">&#8961;</span><span>Medir</span></a>
+                <a href="#panel-puntos" title="Puntos de interés"><span aria-hidden="true">&#9671;</span><span>Puntos</span></a>
+            </nav>
             <section id="map-container">
                 <div id="map"></div>
             </section>
-            <button id="btn-mobile-controles" type="button">Controles</button>
+            <button id="btn-mobile-controles" type="button" aria-controls="sidebar" aria-expanded="false">Controles</button>
 
             <aside id="sidebar">
                 <h2>Panel de Control</h2>
@@ -72,7 +80,7 @@
 
                 <hr>
 
-                <h3>Fotos de campo / drone</h3>
+                <h3 id="titulo-fotos" tabindex="-1">Fotos de campo / drone</h3>
                 <input type="file" id="input-drone" accept="image/*" style="display: none;">
                 <button id="btn-subir-foto" class="tool-btn tool-btn-warn">📷 Subir foto de campo / drone</button>
                 <p style="margin: 8px 0 0; font-size: 0.75em; color: var(--text-muted); line-height: 1.35;">
@@ -102,17 +110,26 @@
 
                 <hr>
 
-                <h3>Calculador de Objetivo (Mira)</h3>
+                <h3 id="titulo-mira" tabindex="-1">Calculador de Objetivo (Mira)</h3>
                 <div id="panel-mira" style="background: #333; padding: 10px; border-radius: 5px; font-size: 0.8em;">
-                    <p style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">Ángulo Gimbal (Pitch):
-                        <input type="number" id="gimbal-pitch" value="45" min="0" max="90" step="0.1" style="width: 56px;"> °
-                        <label style="display:inline-flex; align-items:center; gap:3px; color:var(--text-muted);">
+                    <div class="mira-field">
+                        <label for="gimbal-pitch">Ángulo del gimbal <span>(pitch)</span></label>
+                        <div class="mira-value"><input type="number" aria-label="Ángulo del gimbal en grados" id="gimbal-pitch" value="45" min="0" max="90" step="0.1"><span>°</span></div>
+                    </div>
+                    <div class="mira-source">
+                        <label class="mira-manual">
                             <input type="checkbox" id="gimbal-pitch-manual"> Manual
                         </label>
-                        <small id="estado-camara-mira" style="color:var(--warning);">Cámara: 25° · Estimado</small>
-                    </p>
-                    <p>Rumbo (Heading): <input type="number" id="drone-heading" value="0" style="width: 50px;"> °</p>
-                    <p>Altitud sobre terreno/aprox.: <input type="number" id="manual-alt" value="100" style="width: 50px;"> mts</p>
+                        <small id="estado-camara-mira">Cámara: 25° · Estimado</small>
+                    </div>
+                    <div class="mira-field">
+                        <label for="drone-heading">Rumbo <span>(heading)</span></label>
+                        <div class="mira-value"><input type="number" aria-label="Rumbo en grados" id="drone-heading" value="0"><span>°</span></div>
+                    </div>
+                    <div class="mira-field">
+                        <label for="manual-alt">Altitud <span>sobre terreno / aprox.</span></label>
+                        <div class="mira-value"><input type="number" aria-label="Altitud sobre terreno en metros" id="manual-alt" value="100"><span>m</span></div>
+                    </div>
                     <button id="btn-proyectar" class="tool-btn tool-btn-danger" style="width: 100%;">🎯 Calcular Punto
                         Objetivo</button>
                     <div id="resultado-mira" style="margin-top:10px; color: var(--warning);"></div>
@@ -190,13 +207,15 @@
                             style="width: 100%; margin-top: 6px; background-color: var(--primary);">
                             Polígono Automatico
                         </button>
-                        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
-                            <select id="tamano-baldosa-auto">
+                        <div class="polygon-options">
+                            <label for="tamano-baldosa-auto">Tamaño de baldosa</label>
+                            <select aria-label="Tamaño de baldosa" id="tamano-baldosa-auto">
                                 <option value="100">100 x 100 m</option>
                                 <option value="50">50 x 50 m</option>
                                 <option value="20">20 x 20 m</option>
                             </select>
-                            <select id="modo-poligono-auto">
+                            <label for="modo-poligono-auto">Modo de cálculo</label>
+                            <select aria-label="Modo de polígono automático" id="modo-poligono-auto">
                                 <option value="baldosa">Baldosa fija</option>
                                 <option value="zoom">Por zoom</option>
                             </select>
@@ -264,7 +283,7 @@
         </form>
     </dialog>
     <div id="install-toast" class="install-toast">
-        <img class="brand-install-icon" src="assets/brand/icons/geovision-icon-48.png" alt="" width="48" height="48">
+        <img class="brand-install-icon" src="assets/branding/geovision-icon-48.png" alt="" width="48" height="48">
         <span>Instalar GeoVision en este dispositivo</span>
         <button id="btn-install-toast" type="button">Instalar</button>
     </div>

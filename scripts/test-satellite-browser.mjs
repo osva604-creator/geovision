@@ -99,6 +99,7 @@ try {
     assert.equal(await page.locator('#detalle-satelital h4').first().textContent(), '<img src=x onerror=alert(1)>');
     assert.equal(await page.locator('#detalle-satelital img').count(), 0);
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.workspace-nav a[href="#panel-satelital"]').click();
     await page.locator('.satellite-layer select').selectOption('doc.kml:0');
     await page.screenshot({ path: 'test-results/kmz-mobile.png' });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

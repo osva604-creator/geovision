@@ -223,14 +223,14 @@ requestAnimationFrame(() => {
 });
 
 const droneIcon = L.icon({
-    iconUrl: "assets/brand/icons/geovision-icon-48.png",
+    iconUrl: "assets/branding/geovision-icon-48.png",
     className: "brand-map-icon",
     iconSize: [45, 45],
     iconAnchor: [22, 22]
 });
 
 const iconoMira = L.icon({
-    iconUrl: "assets/brand/icons/geovision-icon-48.png",
+    iconUrl: "assets/branding/geovision-icon-48.png",
     className: "brand-map-icon",
     iconSize: [40, 40],
     iconAnchor: [20, 20]
@@ -434,12 +434,14 @@ function actualizarEstadoCamaraMira() {
     if (!estadoEl) return;
     if (estadoPitchCamara && estadoPitchCamara.valid === false) {
         estadoEl.textContent = "Cámara: --° · Manual";
-        estadoEl.style.color = "#f1c40f";
+        estadoEl.dataset.source = "manual";
+        estadoEl.style.color = "var(--gv-warning)";
         return;
     }
     const estado = clonarPitchCamara(estadoPitchCamara);
     estadoEl.textContent = `Cámara: ${formatearAnguloCamara(estado.depressionDeg)}° · ${estado.label}`;
-    estadoEl.style.color = estado.source === "estimated" ? "#f1c40f" : "#bdc3c7";
+    estadoEl.dataset.source = estado.source;
+    estadoEl.style.color = "";
 }
 
 function resolverPitchDjiDesdeValor(valor, fuente, candidato) {
@@ -1403,7 +1405,15 @@ function bindFotoDrone() {
             if (telemetria.alt !== null) document.getElementById("manual-alt").value = Math.abs(telemetria.alt).toFixed(0);
             ultimaTelemetriaFoto = { zoom: telemetria.zoom, hfov: telemetria.hfov, pitchInfo: telemetria.pitchInfo };
 
-            document.getElementById("telemetria-drone").innerHTML = `<strong>Foto:</strong> ${escapeHtml(file.name)}<br>${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}`;
+            document.getElementById("telemetria-drone").innerHTML = `
+                <strong>${escapeHtml(file.name)}</strong>
+                <p class="telemetry-gps">GPS disponible</p>
+                <dl class="telemetry-grid">
+                    <dt>Altura</dt><dd>${telemetria.alt === null ? "No disponible" : `${telemetria.alt.toFixed(1)} m`}</dd>
+                    <dt>Cámara</dt><dd><span class="pitch-badge" data-source="${escapeHtml(estadoPitchCamara.source)}">${formatearAnguloCamara(estadoPitchCamara.depressionDeg)}° · ${escapeHtml(estadoPitchCamara.label)}</span></dd>
+                    <dt>Rumbo</dt><dd>${telemetria.yaw === null ? "No disponible" : `${normalizarGrados(telemetria.yaw).toFixed(0)}°`}</dd>
+                </dl>
+                <small>${decimalADMS(data.latitude, true)} | ${decimalADMS(data.longitude, false)}</small>`;
 
             if (btnClimaVuelo) btnClimaVuelo.style.display = "block";
 
@@ -2069,6 +2079,7 @@ function initMobileBottomSheet() {
 
     function aplicarEstado() {
         if (!mq.matches) {
+            sidebar.inert = false;
             sidebar.classList.remove("mobile-open");
             btnControles.classList.remove("activo");
             btnControles.style.display = "none";
@@ -2077,9 +2088,24 @@ function initMobileBottomSheet() {
         btnControles.style.display = "block";
         sidebar.classList.toggle("mobile-open", abierto);
         btnControles.classList.toggle("activo", abierto);
+        btnControles.setAttribute("aria-expanded", String(abierto));
+        sidebar.inert = !abierto;
         btnControles.innerText = abierto ? "Cerrar controles" : "Controles";
     }
 
+    document.querySelectorAll(".workspace-nav a").forEach(link => {
+        link.addEventListener("click", event => {
+            event.preventDefault();
+            abierto = true;
+            aplicarEstado();
+            document.querySelectorAll(".workspace-nav a").forEach(item => item.removeAttribute("aria-current"));
+            link.setAttribute("aria-current", "location");
+            const target = document.querySelector(link.getAttribute("href"));
+            sidebar.scrollTo({ top: sidebar.scrollTop + target.getBoundingClientRect().top - sidebar.getBoundingClientRect().top - 20, behavior: "auto" });
+            target.setAttribute("tabindex", "-1");
+            target.focus({ preventScroll: true });
+        });
+    });
     btnControles.onclick = () => {
         abierto = !abierto;
         aplicarEstado();
