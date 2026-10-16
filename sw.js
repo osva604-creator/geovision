@@ -1,4 +1,4 @@
-const CACHE_NAME = "geovision-public-v12";
+const CACHE_NAME = "geovision-public-v13";
 const APP_SHELL = [
     "./",
     "./index.html",
@@ -15,12 +15,12 @@ const APP_SHELL = [
     "./js/satellite-layers.js",
     "./manifest.json",
     "./assets/branding/geovision-logo.png",
-    "./assets/branding/geovision-icon-512.png",
-    "./assets/branding/geovision-icon-maskable-512.png",
-    "./assets/branding/geovision-icon-192.png",
-    "./assets/branding/geovision-icon-48.png",
-    "./assets/branding/favicon.png",
-    "./assets/branding/apple-touch-icon.png"
+    "./assets/branding/geovision-icon-512.png?v=drone-20261015",
+    "./assets/branding/geovision-icon-maskable-512.png?v=drone-20261015",
+    "./assets/branding/geovision-icon-192.png?v=drone-20261015",
+    "./assets/branding/geovision-icon-48.png?v=drone-20261015",
+    "./assets/branding/favicon.png?v=drone-20261015",
+    "./assets/branding/apple-touch-icon.png?v=drone-20261015"
 ];
 
 self.addEventListener("install", (event) => {
@@ -41,8 +41,8 @@ self.addEventListener("fetch", (event) => {
     if (event.request.method !== "GET") return;
     const url = new URL(event.request.url);
     // Nunca interceptar API, tokens, Clerk ni recursos de terceros.
-    if (event.request.headers.has("Authorization") || url.origin !== self.location.origin || url.search ||
-        !APP_SHELL.some(path => new URL(path, self.location.href).pathname === url.pathname)) return;
+    if (event.request.headers.has("Authorization") || url.origin !== self.location.origin ||
+        !APP_SHELL.some(path => new URL(path, self.location.href).href === url.href)) return;
 
     event.respondWith(
         fetch(event.request)

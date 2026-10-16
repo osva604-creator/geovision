@@ -13,19 +13,19 @@
   "theme_color": "#0b1220",
   "icons": [
     {
-      "src": "assets/branding/geovision-icon-192.png",
+      "src": "assets/branding/geovision-icon-192.png?v=drone-20261015",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "assets/branding/geovision-icon-512.png",
+      "src": "assets/branding/geovision-icon-512.png?v=drone-20261015",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "assets/branding/geovision-icon-maskable-512.png",
+      "src": "assets/branding/geovision-icon-maskable-512.png?v=drone-20261015",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
