@@ -1,5 +1,71 @@
 # Auditoría de acceso Clerk — 19 de octubre de 2026
 
+## Despliegue del flujo activo — 19 de octubre de 2026
+
+Se publicó el commit de seguridad `af559b6` en el Worker `geovision`, versión
+`a433df10-4351-40c3-afaf-566fb7b88441`. Pages conserva su proxy al servicio;
+no necesitó un despliegue adicional porque su código no cambió.
+
+Pasaron las 38 pruebas de la aplicación, el dry-run del Worker y el build de
+Pages. En `https://geovision-886.pages.dev` se comprobó que `index.html`,
+`js/auth.js` y `sw.js` coinciden exactamente con el build local (caché v14).
+`/api/config` respondió 200; `/api/session` sin token y con token inválido,
+y `/api/weather` sin sesión, respondieron 401; un origen externo recibió 403.
+Las respuestas API verificadas conservan `no-store` y CSP. Chromium headless
+confirmó el DOM privado vacío y el aviso de ingreso sin sesión.
+
+No se desplegó el gateway heredado de Cloud Functions: es un servicio separado
+que no participa del flujo actual. Siguen pendientes las pruebas con cuentas
+reales de invitación, ingreso, bloqueo y revocación.
+
+## Actualización: configuración del Dashboard mediante TinyFish
+
+Con la sesión guardada por el propietario se continuó la configuración remota.
+Se contrastó el ID de la instancia del Dashboard con `GET /v1/instance`
+autenticado con la configuración local: ambos identifican
+`ins_3JT4coGmNxx8kG8diNg39Y8nXg5`.
+
+Una lectura independiente de `/v1/environment` del Frontend API confirmó:
+
+- `application_name: GEO Vision`.
+- `user_settings.sign_up.mode: restricted` (solo por invitación).
+- Organizations deshabilitado y `force_organization_selection: false`.
+- Home URL, enlace del logo, retornos después de ingreso, registro y cambio
+  de sesión apuntan a `https://geovision-886.pages.dev`.
+- Los retornos de cierre de sesión siguen en las páginas de ingreso de Clerk.
+- La instancia sigue siendo de desarrollo. No se creó una de producción.
+
+TinyFish informó que conservó la allowlist. No se enviaron invitaciones ni se
+crearon o eliminaron usuarios. La aceptación de una invitación real, el ingreso
+con una cuenta y las pruebas reales de revocación siguen pendientes. El ajuste
+residual `actions.create_organization: true` sigue publicado, con Organizations
+deshabilitado. Los diagnósticos y pendientes anteriores quedan como historial;
+esta actualización reemplaza sus valores de nombre, acceso y retornos.
+
+## Reparación remota posterior autorizada
+
+El propietario autorizó reparar Clerk. Se instaló Chromium de Playwright
+(Chromium 1243 y su Headless Shell) en el equipo. La herramienta de navegación
+de esta sesión sigue sin navegadores conectados; instalar Chromium no conecta
+automáticamente el control del navegador a ChatGPT.
+
+Se aplicó `PATCH /instance/organization_settings` con `enabled: false` y se
+verificó mediante lecturas independientes de Backend API y Frontend API:
+
+- Organizations deshabilitado en ambos endpoints.
+- `force_organization_selection: false` confirmado después del cambio.
+- La organización existente no fue eliminada ni se alteraron sus miembros.
+- `user_settings.actions.create_organization` sigue publicado como `true`,
+  aunque la función Organizations está deshabilitada. Falta revisar ese ajuste
+  residual en el panel; no se modificaron parámetros no documentados.
+
+**Pendiente:** el registro sigue en `public` con allowlist. La API Backend
+documentada no expone la modificación de Access mode, nombre público ni los
+retornos del Account Portal. Requieren acceso al Dashboard con un navegador
+conectado. No se usaron endpoints internos, no se desactivó la allowlist ni se
+crearon credenciales. La instancia sigue siendo de desarrollo. Los apartados
+de diagnóstico siguientes conservan el estado anterior como referencia.
+
 ## Alcance y diagnóstico
 
 Git estaba limpio al comenzar. Se revisaron frontend, persistencia, service worker,

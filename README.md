@@ -7,7 +7,11 @@ La identidad visual local está en [`assets/brand`](assets/brand), con logos sep
 ## Estado de la integración
 
 Auditoría local de acceso y pasos manuales de Invite-only: [docs/clerk-audit.md](docs/clerk-audit.md).
-Los cambios de esa auditoría no están desplegados y no confirman la configuración remota actual.
+Los cambios de seguridad del flujo activo se desplegaron el 19 de octubre de 2026
+en el Worker `geovision`, versión `a433df10-4351-40c3-afaf-566fb7b88441`.
+Se verificaron los archivos publicados, rechazo de acceso sin sesión y bloqueo del
+DOM privado en navegador. Las pruebas reales de ingreso, invitación y revocación
+siguen pendientes. La auditoría registra también la configuración remota de Clerk.
 
 **Dirección pública: https://geovision-886.pages.dev**, publicada el 17 de septiembre de 2026. Proyecto Pages: `geovision`; despliegue inicial de Pages: `78f56e12`. El servidor es el Worker independiente `geovision`, en la cuenta indicada en `wrangler.jsonc`.
 
