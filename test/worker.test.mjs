@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import worker, { createWorker } from '../src/worker.mjs';
+import { createWorker as createRealWorker, validateActiveAccount } from '../src/worker.mjs';
+
+const createWorker = options => createRealWorker({ validateAccount: async () => true, ...options });
+const worker = createWorker();
 
 const origin = 'https://geovision.example.com';
 const host = 'example.clerk.accounts.dev';
@@ -123,4 +126,26 @@ test('security headers also wrap static assets and error responses', async () =>
     assert.match(response.headers.get('Content-Security-Policy'), /frame-ancestors 'none'/);
     assert.match(response.headers.get('Content-Security-Policy'), /example.clerk.accounts.dev/);
   }
+});
+
+
+test('online account check rejects revoked, expired, blocked and mismatched accounts', async () => {
+  const auth = { userId: 'user_1', sessionId: 'sess_1' };
+  const check = (session = {}, user = {}) => validateActiveAccount({
+    sessions: { getSession: async id => {
+      assert.equal(id, 'sess_1');
+      return { userId: 'user_1', status: 'active', expireAt: Date.now() + 60000, ...session };
+    } },
+    users: { getUser: async id => { assert.equal(id, 'user_1'); return { banned: false, locked: false, ...user }; } }
+  }, auth);
+  assert.equal(await check(), true);
+  for (const session of [{ status: 'revoked' }, { status: 'ended' }, { expireAt: 0 }, { userId: 'user_2' }]) {
+    assert.equal(await check(session), false);
+  }
+  assert.equal(await check({}, { banned: true }), false);
+  assert.equal(await check({}, { locked: true }), false);
+  const denied = createWorker({ validateAccount: async () => false });
+  assert.equal((await denied.fetch(request('/api/session'), env)).status, 401);
+  const unavailable = createWorker({ validateAccount: async () => { throw new Error('unavailable'); } });
+  assert.equal((await unavailable.fetch(request('/api/dji/mission', { method: 'POST' }), env)).status, 401);
 });

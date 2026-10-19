@@ -21,7 +21,9 @@
     <div id="welcome-screen" class="welcome-screen">
         <div class="welcome-card">
             <h1><img class="brand-logo brand-logo-welcome" src="assets/branding/geovision-logo.png" alt="GeoVision" width="745" height="484" fetchpriority="high"></h1>
-            <p>Ingresá con tu cuenta para abrir tus mapas.</p>
+            <h2>Acceso restringido</h2>
+            <p>GEO Vision está disponible únicamente para usuarios autorizados.
+            Ingresá con el correo asociado a tu invitación.</p>
             <p id="auth-notice" role="status" aria-live="polite">Conectando con el servicio de acceso…</p>
             <button id="btn-welcome-start" type="button" disabled>Ingresar</button>
             <button id="btn-auth-retry" type="button" class="hidden">Reintentar</button>
@@ -29,6 +31,8 @@
         </div>
     </div>
 
+    <div id="private-root"></div>
+    <template id="private-template">
     <div id="app-container" class="hidden">
         <header>
             <h1><img class="brand-logo brand-logo-header" src="assets/branding/geovision-logo.png" alt="GeoVision 2026" width="745" height="484"></h1>
@@ -287,6 +291,7 @@
         <span>Instalar GeoVision en este dispositivo</span>
         <button id="btn-install-toast" type="button">Instalar</button>
     </div>
+    </template>
     <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

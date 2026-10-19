@@ -29,12 +29,12 @@ function fakeDocument() {
   const getElementById = id => {
     if (!nodes.has(id)) {
       const classes = new Set(id === 'app-container' ? ['hidden'] : []);
-      nodes.set(id, { textContent: '', disabled: id === 'btn-welcome-start',
+      nodes.set(id, { append() {}, replaceChildren() {}, content: { cloneNode() { return {}; } }, textContent: '', disabled: id === 'btn-welcome-start',
         classList: { add: name => classes.add(name), remove: name => classes.delete(name), contains: name => classes.has(name) } });
     }
     return nodes.get(id);
   };
-  return { getElementById, createElement: () => ({ setAttribute() {} }), head: { appendChild() {} } };
+  return { addEventListener() {}, getElementById, createElement: () => ({ setAttribute() {} }), head: { appendChild() {} } };
 }
 
 test('unconfigured or offline browser stays locked without loading app data', async () => {
@@ -53,12 +53,15 @@ test('unconfigured or offline browser stays locked without loading app data', as
   }
 });
 
-test('browser validates session before loading map and reloads on account change', async () => {
+for (const scenario of ['account change', 'offline', 'server revocation']) test(`browser validates before loading and clears private state on ${scenario}`, async () => {
   const document = fakeDocument();
   const events = [];
   let listener;
+  let interval;
+  let revoked = false;
+  const handlers = {};
   const key = `pk_test_${Buffer.from('example.clerk.accounts.dev$').toString('base64')}`;
-  const window = { initializeGeoVision: () => events.push('map-initialized'), Clerk: {
+  const window = { addEventListener(name, callback) { handlers[name] = callback; }, initializeGeoVision: () => events.push('map-initialized'), Clerk: {
     session: { id: 'sess_1', getToken: async () => 'signed-token' },
     user: { id: 'user_1', fullName: 'Usuario Uno' }, load: async () => {},
     addListener: callback => { listener = callback; }, mountUserButton: () => {},
@@ -68,11 +71,12 @@ test('browser validates session before loading map and reloads on account change
     queueMicrotask(() => script.onload());
   };
   vm.runInNewContext(await readFile(new URL('../js/auth.js', import.meta.url), 'utf8'), {
-    document, window, navigator: {}, URL, Headers, atob,
+    document, window, navigator: {}, URL, Headers, atob, AbortSignal, Date, setInterval(callback) { interval = callback; },
     location: { origin: 'https://geo.example', reload: () => events.push('reload') },
     fetch: async (path, options) => {
       if (String(path).endsWith('/api/config')) return Response.json({ publishableKey: key });
       assert.equal(options.headers.get('Authorization'), 'Bearer signed-token');
+      if (revoked) return new Response('', { status: 401 });
       events.push('server-validated');
       return Response.json({ userId: 'user_1' });
     }
@@ -83,7 +87,10 @@ test('browser validates session before loading map and reloads on account change
   assert.ok(events.includes('map-initialized'));
   assert.equal(document.getElementById('app-container').classList.contains('hidden'), false);
   await assert.rejects(window.geoAuth.fetch('https://evil.example/api/test'), /Destino no permitido/);
-  listener({ user: { id: 'user_2' }, session: { id: 'sess_2' } });
+  if (scenario === 'account change') listener({ user: { id: 'user_2' }, session: { id: 'sess_2' } });
+  if (scenario === 'offline') handlers.offline();
+  if (scenario === 'server revocation') { revoked = true; await interval(); }
+  assert.equal(window.geoAuth.userId, null);
   assert.equal(document.getElementById('app-container').classList.contains('hidden'), true);
   assert.ok(events.includes('reload'));
 });

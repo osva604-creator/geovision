@@ -38,6 +38,9 @@ function verifyHs256Jwt(token, authConfig) {
     throw new AppError(401, "INVALID_TOKEN", "Bearer token is not a valid JWT.");
   }
 
+  if (!header || !payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new AppError(401, "INVALID_TOKEN", "Bearer token payload is invalid.");
+  }
   if (header.alg !== "HS256") {
     throw new AppError(401, "UNSUPPORTED_TOKEN_ALGORITHM", "Only HS256 JWT verification is configured.");
   }
@@ -52,6 +55,10 @@ function verifyHs256Jwt(token, authConfig) {
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(payload.exp) || typeof payload.sub !== "string" || !payload.sub.trim() ||
+      (payload.nbf !== undefined && !Number.isFinite(payload.nbf))) {
+    throw new AppError(401, "INVALID_TOKEN", "Bearer token requires a subject and a numeric expiration.");
+  }
   if (payload.iss !== authConfig.issuer) {
     throw new AppError(401, "INVALID_TOKEN_ISSUER", "Bearer token issuer is invalid.");
   }

@@ -6,6 +6,9 @@ La identidad visual local está en [`assets/brand`](assets/brand), con logos sep
 
 ## Estado de la integración
 
+Auditoría local de acceso y pasos manuales de Invite-only: [docs/clerk-audit.md](docs/clerk-audit.md).
+Los cambios de esa auditoría no están desplegados y no confirman la configuración remota actual.
+
 **Dirección pública: https://geovision-886.pages.dev**, publicada el 17 de septiembre de 2026. Proyecto Pages: `geovision`; despliegue inicial de Pages: `78f56e12`. El servidor es el Worker independiente `geovision`, en la cuenta indicada en `wrangler.jsonc`.
 
 La importación KMZ/KML y la revisión con fotos de campo se publicaron en la versión `126f6f29-9f6f-4354-acb4-f9525468a383`. Se verificó que los archivos publicados coinciden con los probados localmente. Pasaron 20 pruebas automatizadas y la prueba completa de navegador con archivos sintéticos; todavía no se ha validado un KMZ real del proveedor del usuario.

@@ -37,7 +37,7 @@ function secure(response, env) {
   return result;
 }
 
-async function authenticate(request, env) {
+async function authenticate(request, env, validateAccount = validateActiveAccount) {
   const client = createClerkClient({
     publishableKey: env.CLERK_PUBLISHABLE_KEY,
     secretKey: env.CLERK_SECRET_KEY,
@@ -47,13 +47,25 @@ async function authenticate(request, env) {
     authorizedParties: [new URL(request.url).origin],
     acceptsToken: 'session_token'
   });
-  return state.isAuthenticated ? state.toAuth() : null;
+  if (!state.isAuthenticated) return null;
+  const auth = state.toAuth();
+  return await validateAccount(client, auth) ? auth : null;
 }
 
-export function createWorker({ authenticateRequest = authenticate, fetchUpstream = fetch } = {}) {
+// JWT verification alone cannot immediately detect revocation or a blocked user.
+export async function validateActiveAccount(client, auth) {
+  if (!auth.userId || !auth.sessionId) return false;
+  const [session, user] = await Promise.all([
+    client.sessions.getSession(auth.sessionId), client.users.getUser(auth.userId)
+  ]);
+  return session.status === 'active' && session.userId === auth.userId &&
+    session.expireAt > Date.now() && !user.banned && !user.locked;
+}
+
+export function createWorker({ authenticateRequest = authenticate, fetchUpstream = fetch, validateAccount = validateActiveAccount } = {}) {
   return {
     async fetch(request, env) {
-      try { return secure(await route(request, env, authenticateRequest, fetchUpstream), env); }
+      try { return secure(await route(request, env, (req, bindings) => authenticateRequest(req, bindings, validateAccount), fetchUpstream), env); }
       catch { return secure(fail('No se pudo completar la solicitud.', 502), env); }
     }
   };
